@@ -85,20 +85,22 @@ struct SliceOperation {
         const std::optional<MemoryConfig>& memory_config_arg = std::nullopt,
         const std::optional<Tensor>& optional_output_tensor = std::nullopt);
 
+    template <typename T>
     static ttnn::Tensor invoke(
         uint8_t queue_id,
         const ttnn::Tensor& input_tensor,
         const ttnn::Tensor& output_tensor_start,
         const ttnn::Tensor& output_tensor_end,
-        const std::optional<ttnn::SmallVector<int>>& step,
+        const std::optional<ttnn::SmallVector<T>>& step,
         const std::optional<MemoryConfig>& memory_config_arg = std::nullopt,
         const std::optional<Tensor>& optional_output_tensor = std::nullopt);
 
+    template <typename T>
     static ttnn::Tensor invoke(
         const ttnn::Tensor& input_tensor,
         const ttnn::Tensor& output_tensor_start,
         const ttnn::Tensor& output_tensor_end,
-        const std::optional<ttnn::SmallVector<int>>& step,
+        const std::optional<ttnn::SmallVector<T>>& step,
         const std::optional<MemoryConfig>& memory_config_arg = std::nullopt,
         const std::optional<Tensor>& optional_output_tensor = std::nullopt);
 };
