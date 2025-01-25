@@ -135,7 +135,7 @@ ttnn::Tensor SliceOperation::invoke(
             input_tensor.storage_type() == StorageType::DEVICE,
             "Host tensor slice cannot return a scalar or empty tensor");
         return ttnn::empty(
-            ttnn::SimpleShape(actual_shape),
+            ttnn::Shape(actual_shape, actual_shape),
             input_tensor.dtype(),
             input_tensor.layout(),
             input_tensor.device(),
@@ -276,8 +276,7 @@ ttnn::Tensor SliceOperation::invoke<uint32_t, 4>(
         TT_FATAL(on_device, "Host tensor slice cannot return a scalar or empty tensor");
         auto memory_config = optional_output_tensor.has_value() ? optional_output_tensor.value().memory_config()
                                                                 : memory_config_arg.value_or(input.memory_config());
-        return ttnn::empty(
-            ttnn::SimpleShape(actual_shape), input.dtype(), input_tensor.layout(), input.device(), memory_config);
+        return ttnn::empty(output_shape, input.dtype(), input_tensor.layout(), input.device(), memory_config);
     }
 
     // Early exit if slice is a no-op
@@ -362,44 +361,52 @@ ttnn::Tensor SliceOperation::invoke(
         ttnn::DefaultQueueId, input_tensor, output_tensor_start, output_tensor_end, step, memory_config_arg);
 }
 
+template <typename T>
 ttnn::Tensor SliceOperation::invoke(
     uint8_t queue_id,
     const ttnn::Tensor& input_tensor,
     const ttnn::Tensor& output_tensor_start,
     const ttnn::Tensor& output_tensor_end,
-    const std::optional<ttnn::SmallVector<int>>& step,
+    const std::optional<ttnn::SmallVector<T>>& step,
     const std::optional<MemoryConfig>& memory_config_arg,
     const std::optional<Tensor>& optional_output_tensor) {
-    // Conver the Tensor to Span
+    TT_FATAL(
+        output_tensor_start.shape().rank() == 1,
+        "The start tensor for slicing must be in 1D shape, but got {}D",
+        output_tensor_start.shape().rank());
+    TT_FATAL(
+        output_tensor_end.shape().rank() == 1,
+        "The end tensor for slicing must be in 1D shape, but got {}D",
+        output_tensor_end.shape().rank());
 
-    std::vector<uint32_t> output_tensor_start_vector = output_tensor_start.to_vector<uint32_t>();
-    std::vector<uint32_t> output_tensor_endv_ector = output_tensor_end.to_vector<uint32_t>();
+    // convert the Tensor to Vector
+    std::vector<T> output_tensor_start_vector = output_tensor_start.to_vector<T>();
+    std::vector<T> output_tensor_end_vector = output_tensor_end.to_vector<T>();
 
-    tt::stl::Span<const uint32_t> output_tensor_start_span(
+    // convert the Vector to Span
+    tt::stl::Span<const T> output_tensor_start_span(
         output_tensor_start_vector.data(), output_tensor_start_vector.size());
-    tt::stl::Span<const uint32_t> output_tensor_end_span(
-        output_tensor_endv_ector.data(), output_tensor_endv_ector.size());
+    tt::stl::Span<const T> output_tensor_end_span(output_tensor_end_vector.data(), output_tensor_end_vector.size());
 
-    ttnn::SmallVector<int> step_value = step.value_or(ttnn::SmallVector<int>(output_tensor_start_span.size(), 1));
-    ttnn::SmallVector<uint32_t> step_uint32(step_value.begin(), step_value.end());
+    // generate the step value if it is not provided
+    ttnn::SmallVector<T> step_value = step.value_or(ttnn::SmallVector<T>(output_tensor_start_span.size(), 1));
 
-    return SliceOperation::invoke<uint32_t>(
+    return SliceOperation::invoke<T>(
         queue_id,
         input_tensor,
         output_tensor_start_span,
         output_tensor_end_span,
-        tt::stl::Span<const uint32_t>(step_uint32),
+        tt::stl::Span<const T>(step_value),
         memory_config_arg);
 }
+template <typename T>
 ttnn::Tensor SliceOperation::invoke(
     const ttnn::Tensor& input_tensor,
     const ttnn::Tensor& output_tensor_start,
     const ttnn::Tensor& output_tensor_end,
-    const std::optional<ttnn::SmallVector<int>>& step,
+    const std::optional<ttnn::SmallVector<T>>& step,
     const std::optional<MemoryConfig>& memory_config_arg,
     const std::optional<Tensor>& optional_output_tensor) {
-    tt::log_info(tt::LogOp, "invoke tensor without Queue ID", input_tensor);
-
     return SliceOperation::invoke(
         ttnn::DefaultQueueId, input_tensor, output_tensor_start, output_tensor_end, step, memory_config_arg);
 }
@@ -462,4 +469,22 @@ template ttnn::Tensor SliceOperation::invoke<uint32_t, 1>(
     const std::array<uint32_t, 1>& step,
     const std::optional<MemoryConfig>& memory_config_arg,
     const std::optional<Tensor>& optional_output_tensor);
+
+template ttnn::Tensor SliceOperation::invoke<uint32_t>(
+    const ttnn::Tensor& input_tensor,
+    const ttnn::Tensor& output_tensor_start,
+    const ttnn::Tensor& output_tensor_end,
+    const std::optional<ttnn::SmallVector<uint32_t>>& step,
+    const std::optional<MemoryConfig>& memory_config_arg,
+    const std::optional<Tensor>& optional_output_tensor);
+
+template ttnn::Tensor SliceOperation::invoke<uint32_t>(
+    uint8_t queue_id,
+    const ttnn::Tensor& input_tensor,
+    const ttnn::Tensor& output_tensor_start,
+    const ttnn::Tensor& output_tensor_end,
+    const std::optional<ttnn::SmallVector<uint32_t>>& step,
+    const std::optional<MemoryConfig>& memory_config_arg,
+    const std::optional<Tensor>& optional_output_tensor);
+
 }  // namespace ttnn::operations::data_movement
