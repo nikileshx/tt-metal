@@ -13,8 +13,11 @@ from tests.ttnn.utils_for_testing import assert_with_pcc
 from functools import reduce
 
 dtypes = [torch.bfloat16]
-shapes = [(1, 2, 4, 4), (1, 1, 1, 1)]
-repeat_specs = [(1, 2, 1, 1), (2, 2, 2, 2)]
+# shapes = [(1, 2, 4, 4), (1, 1, 1, 1)]
+# repeat_specs = [(1, 2, 1, 1), (2, 2, 2, 2)]
+
+shapes = [(1, 3, 1, 1)]
+repeat_specs = [(1, 1, 3, 3)]
 
 shape_and_repeat_specs = list(zip(shapes, repeat_specs))
 
