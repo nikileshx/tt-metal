@@ -5,8 +5,6 @@
 #include "create_qkv_heads_device_operation.hpp"
 #include <tt-metalium/work_split.hpp>
 
-#include <tt-metalium/host_api.hpp>
-
 namespace ttnn::operations::experimental::transformer {
 
 void CreateQKVHeadsDeviceOperation::validate(const std::vector<Tensor>& input_tensors) const {
@@ -20,7 +18,7 @@ void CreateQKVHeadsDeviceOperation::validate(const std::vector<Tensor>& input_te
         "Unsupported data format");
     TT_FATAL(input_tensor.get_layout() == Layout::TILE, "Error");
     TT_FATAL(input_tensor.is_sharded(), "Operands to TM must be sharded");
-    const auto input_shape = input_tensor.get_legacy_shape();
+    const auto input_shape = input_tensor.get_padded_shape();
     TT_FATAL(input_shape[1] == 1, "Unsupported input shape");
 
     auto bbox = input_tensor.shard_spec().value().grid.bounding_box();

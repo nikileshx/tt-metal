@@ -18,7 +18,7 @@
 #include "impl/debug/watcher_server.hpp"
 #include "tt_metal/impl/dispatch/kernels/packet_queue_ctrl.hpp"
 #include <utils.hpp>
-#include <llrt.hpp>
+#include "llrt.hpp"
 #include <dev_msgs.h>
 #include <device_pool.hpp>
 #include <persistent_kernel_cache.hpp>
@@ -38,8 +38,16 @@ namespace tt {
 namespace tt_metal {
 
 Device::Device(
-    chip_id_t device_id, const uint8_t num_hw_cqs, size_t l1_small_size, size_t trace_region_size, tt::stl::Span<const std::uint32_t> l1_bank_remap, bool minimal, uint32_t worker_core, uint32_t completion_queue_reader_core) :
-    id_(device_id), worker_thread_core_(worker_core), completion_queue_reader_core_(completion_queue_reader_core), work_executor_(worker_core, device_id) {
+    chip_id_t device_id,
+    const uint8_t num_hw_cqs,
+    size_t l1_small_size,
+    size_t trace_region_size,
+    tt::stl::Span<const std::uint32_t> l1_bank_remap,
+    bool minimal,
+    uint32_t worker_thread_core,
+    uint32_t completion_queue_reader_core) :
+    id_(device_id), worker_thread_core_(worker_thread_core), completion_queue_reader_core_(completion_queue_reader_core), work_executor_(worker_thread_core, device_id)
+{
     ZoneScoped;
     this->initialize(num_hw_cqs, l1_small_size, trace_region_size, l1_bank_remap, minimal);
 }
@@ -228,8 +236,20 @@ void Device::initialize_cluster() {
 
 void Device::initialize_default_sub_device_state(size_t l1_small_size, size_t trace_region_size, tt::stl::Span<const std::uint32_t> l1_bank_remap) {
     // Create the default sub-device manager representing the entire chip
+    const auto& compute_grid_size = this->compute_with_storage_grid_size();
+    const auto& active_eth_cores = this->get_active_ethernet_cores(true);
+    std::vector<CoreRange> active_eth_core_ranges;
+    active_eth_core_ranges.reserve(active_eth_cores.size());
+    for (const auto& core : active_eth_cores) {
+        active_eth_core_ranges.emplace_back(core, core);
+    }
+
+    auto sub_devices = {SubDevice(std::array{
+        CoreRangeSet(CoreRange({0, 0}, {compute_grid_size.x - 1, compute_grid_size.y - 1})),
+        CoreRangeSet(std::move(active_eth_core_ranges))})};
+
     sub_device_manager_tracker_ = std::make_unique<SubDeviceManagerTracker>(
-        this, this->initialize_allocator(l1_small_size, trace_region_size, l1_bank_remap));
+        this, this->initialize_allocator(l1_small_size, trace_region_size, l1_bank_remap), sub_devices);
 }
 
 std::unique_ptr<Allocator> Device::initialize_allocator(size_t l1_small_size, size_t trace_region_size, tt::stl::Span<const std::uint32_t> l1_bank_remap) {
@@ -275,7 +295,8 @@ std::unique_ptr<Allocator> Device::initialize_allocator(size_t l1_small_size, si
     }
     // Initialize core_type_from_noc_coord_table table
     for (const auto& core: soc_desc.physical_cores) {
-        config.core_type_from_noc_coord_table.insert({this->virtual_core_from_physical_core(core.first, core.second.type), AllocCoreType::Invalid});
+        config.core_type_from_noc_coord_table.insert(
+            {this->virtual_core_from_physical_core(core.first), AllocCoreType::Invalid});
     }
 
     for (const CoreCoord& core : tt::get_logical_compute_cores(id_, num_hw_cqs_, dispatch_core_config)) {
@@ -551,6 +572,21 @@ void Device::reset_cores() {
     auto kernel_still_running = [](launch_msg_t* launch_msg, go_msg_t *go_signal) {
         return (go_signal->signal) == RUN_MSG_GO && launch_msg->kernel_config.exit_erisc_kernel == 0;
     };
+    auto erisc_app_still_running = [this](CoreCoord virtual_core) {
+        // Check if the kernel/erisc_app is still running on a ethernet core with context switching enabled
+        // The LAUNCH_ERISC_APP_FLAG is reset to 0 after reset/reboot, and set to 1 when Metal runtime launches erisc
+        // app FW Only applicable to WORMHOLE ethernet cores today, but could in theory extend to other cores, remove
+        // assert if so
+        TT_ASSERT(
+            (this->arch() == ARCH::WORMHOLE_B0) and
+                (tt::Cluster::instance().is_ethernet_core(virtual_core, this->id())),
+            "Invalid core type for context switch check");
+        auto core_type_idx = hal.get_programmable_core_type_index(HalProgrammableCoreType::ACTIVE_ETH);
+        std::uint32_t launch_erisc_addr = tt::tt_metal::hal.get_jit_build_config(core_type_idx, 0, 0).fw_launch_addr;
+        auto data =
+            tt::llrt::read_hex_vec_from_core(this->id(), virtual_core, launch_erisc_addr, sizeof(std::uint32_t));
+        return (data[0] != 0);
+    };
 
     auto mmio_device_id = tt::Cluster::instance().get_associated_mmio_device(this->id_);
     // Assert worker cores + dispatch cores, in case they were in a bad state from before.
@@ -559,18 +595,12 @@ void Device::reset_cores() {
     std::memset(&go_msg, 0, sizeof(go_msg_t));
     for (const auto &eth_core : this->get_active_ethernet_cores()) {
         CoreCoord virtual_core = this->ethernet_core_from_logical_core(eth_core);
-        std::vector<uint32_t> data(sizeof(launch_msg_t) / sizeof(uint32_t));
-        std::vector<uint32_t> go_signal_data(sizeof(go_msg_t) / sizeof(uint32_t));
-        DeviceAddr launch_addr = hal.get_dev_addr(HalProgrammableCoreType::ACTIVE_ETH, HalL1MemAddrType::LAUNCH);
-        DeviceAddr go_signal_addr = hal.get_dev_addr(HalProgrammableCoreType::ACTIVE_ETH, HalL1MemAddrType::GO_MSG);
+        if (erisc_app_still_running(virtual_core)) {
+            std::vector<uint32_t> data(sizeof(launch_msg_t) / sizeof(uint32_t));
+            DeviceAddr launch_addr = hal.get_dev_addr(HalProgrammableCoreType::ACTIVE_ETH, HalL1MemAddrType::LAUNCH);
 
-        data = tt::llrt::read_hex_vec_from_core(
-            this->id(), virtual_core, launch_addr, sizeof(launch_msg_t));
-        go_signal_data = tt::llrt::read_hex_vec_from_core(
-            this->id(), virtual_core, go_signal_addr, sizeof(go_msg_t));
-        launch_msg_t *launch_msg = (launch_msg_t *)(&data[0]);
-        go_msg_t * go_signal = (go_msg_t *)(&go_signal_data[0]);
-        if (kernel_still_running(launch_msg, go_signal)) {
+            data = tt::llrt::read_hex_vec_from_core(this->id(), virtual_core, launch_addr, sizeof(launch_msg_t));
+            launch_msg_t* launch_msg = (launch_msg_t*)(&data[0]);
             log_info(
                 tt::LogMetal,
                 "While initializing Device {}, ethernet tunneler core {} on Device {} detected as still running, issuing exit signal.",
@@ -595,23 +625,19 @@ void Device::reset_cores() {
             // Only need to manually reset ethernet dispatch cores, tensix cores are all reset below.
             if (tt::Cluster::instance().is_ethernet_core(virtual_core, id_and_cores.first)) {
                 // Ethernet cores won't be reset, so just signal the dispatch cores to early exit.
-                std::vector<uint32_t> data(sizeof(launch_msg_t) / sizeof(uint32_t));
-                std::vector<uint32_t> go_signal_data(sizeof(go_msg_t) / sizeof(uint32_t));
-                DeviceAddr launch_addr = hal.get_dev_addr(HalProgrammableCoreType::IDLE_ETH, HalL1MemAddrType::LAUNCH);
-                DeviceAddr go_signal_addr = hal.get_dev_addr(HalProgrammableCoreType::ACTIVE_ETH, HalL1MemAddrType::GO_MSG);
-                data = tt::llrt::read_hex_vec_from_core(
-                    id_and_cores.first, virtual_core, launch_addr, sizeof(launch_msg_t));
-                go_signal_data = tt::llrt::read_hex_vec_from_core(
-                    this->id(), virtual_core, go_signal_addr, sizeof(go_msg_t));
-                launch_msg_t *launch_msg = (launch_msg_t *)(&data[0]);
-                go_msg_t * go_signal = (go_msg_t *)(&go_signal_data[0]);
-                if (kernel_still_running(launch_msg, go_signal)) {
+                if (erisc_app_still_running(virtual_core)) {
                     log_info(
                         tt::LogMetal,
                         "While initializing device {}, ethernet dispatch core {} on Device {} detected as still running, issuing exit signal.",
                         this->id(),
                         virtual_core.str(),
                         id_and_cores.first);
+                    std::vector<uint32_t> data(sizeof(launch_msg_t) / sizeof(uint32_t));
+                    DeviceAddr launch_addr =
+                        hal.get_dev_addr(HalProgrammableCoreType::IDLE_ETH, HalL1MemAddrType::LAUNCH);
+                    data = tt::llrt::read_hex_vec_from_core(
+                        id_and_cores.first, virtual_core, launch_addr, sizeof(launch_msg_t));
+                    launch_msg_t* launch_msg = (launch_msg_t*)(&data[0]);
                     launch_msg->kernel_config.exit_erisc_kernel = 1;
                     llrt::write_launch_msg_to_core(id_and_cores.first, virtual_core, launch_msg, &go_msg, launch_addr, false);
                     device_to_early_exit_cores[id_and_cores.first].insert(virtual_core);
@@ -635,6 +661,7 @@ void Device::reset_cores() {
     }
 
     // Reset Tensix cores
+    // TODO: reset BH eth cores as well
     CoreCoord grid_size = this->logical_grid_size();
     for (uint32_t y = 0; y < grid_size.y; y++) {
         for (uint32_t x = 0; x < grid_size.x; x++) {
@@ -708,7 +735,7 @@ void Device::initialize_and_launch_firmware() {
         // Track Virtual Non Worker Cores (In this case only Eth) separately
         uint32_t virtual_non_worker_cores_idx = 0;
         for (const CoreCoord &core : eth_cores) {
-            auto virtual_core = this->virtual_core_from_physical_core(core, CoreType::ETH);
+            auto virtual_core = this->virtual_core_from_physical_core(core);
             core_info->virtual_non_worker_cores[virtual_non_worker_cores_idx++] = {virtual_core.x, virtual_core.y, AddressableCoreType::ETH};
         }
     }
@@ -737,6 +764,8 @@ void Device::initialize_and_launch_firmware() {
 
     core_info->noc_size_x = soc_d.grid_size.x;
     core_info->noc_size_y = soc_d.grid_size.y;
+    core_info->worker_grid_size_x = this->logical_grid_size().x;  // Grid size as virtual coords see it (workers only)
+    core_info->worker_grid_size_y = this->logical_grid_size().y;
 
     // Download to worker cores
     log_debug("Initializing firmware");
@@ -942,7 +971,8 @@ void Device::init_command_queue_host() {
     hw_command_queues_.reserve(num_hw_cqs());
     sw_command_queues_.reserve(num_hw_cqs());
     for (size_t cq_id = 0; cq_id < num_hw_cqs(); cq_id++) {
-        hw_command_queues_.push_back(std::make_unique<HWCommandQueue>(this, cq_id, dispatch_downstream_noc));
+        hw_command_queues_.push_back(
+            std::make_unique<HWCommandQueue>(this, cq_id, dispatch_downstream_noc, completion_queue_reader_core_));
         sw_command_queues_.push_back(std::make_unique<CommandQueue>(this, cq_id));
     }
 }
@@ -1159,11 +1189,12 @@ CoreCoord Device::compute_with_storage_grid_size() const {
 }
 
 CoreType Device::core_type_from_physical_core(const CoreCoord &physical_coord) const {
-    const metal_SocDescriptor &soc_desc = tt::Cluster::instance().get_soc_desc(this->id_);
-    if (soc_desc.physical_cores.find(physical_coord) == soc_desc.physical_cores.end())
-        TT_THROW("Physical core {} doesn't exist in metal_SocDescriptor.", physical_coord);
-
-    return soc_desc.physical_cores.at(physical_coord).type;
+    const metal_SocDescriptor& soc_desc = tt::Cluster::instance().get_soc_desc(this->id_);
+    CoreType core_type = soc_desc.translate_coord_to(physical_coord, CoordSystem::PHYSICAL, CoordSystem::PHYSICAL).core_type;
+    if (core_type == CoreType::TENSIX) {
+        core_type = CoreType::WORKER;
+    }
+    return core_type;
 }
 
 CoreType Device::core_type_from_virtual_core(const CoreCoord &virtual_coord) const {
@@ -1182,7 +1213,7 @@ CoreCoord Device::virtual_noc0_coordinate(uint8_t noc_index, CoreCoord coord) co
     } else {
         const auto& grid_size = this->grid_size();
         // Coordinate in Physical NOC0 Space. Convert to Virtual.
-        coord = this->virtual_core_from_physical_core(coord, this->core_type_from_physical_core(coord));
+        coord = this->virtual_core_from_physical_core(coord);
         // Derive virtual coord in noc_index space.
         CoreCoord virtual_coord = {
             hal.noc_coordinate(noc_index, grid_size.x, coord.x),
@@ -1205,7 +1236,7 @@ CoreCoord Device::virtual_noc_coordinate(uint8_t noc_index, CoreCoord coord) con
             hal.noc_coordinate(noc_index, grid_size.x, coord.x),
             hal.noc_coordinate(noc_index, grid_size.y, coord.y)
         };
-        return this->virtual_core_from_physical_core(physical_coord, this->core_type_from_physical_core(physical_coord));
+        return this->virtual_core_from_physical_core(physical_coord);
     }
 }
 
@@ -1234,8 +1265,8 @@ CoreCoord Device::virtual_core_from_logical_core(const CoreCoord &logical_coord,
     return tt::Cluster::instance().get_virtual_coordinate_from_logical_coordinates(this->id_, logical_coord, core_type);
 }
 
-CoreCoord Device::virtual_core_from_physical_core(const CoreCoord &physical_coord, const CoreType& core_type) const {
-    return tt::Cluster::instance().get_virtual_coordinate_from_physical_coordinates(this->id_, physical_coord, core_type);
+CoreCoord Device::virtual_core_from_physical_core(const CoreCoord& physical_coord) const {
+    return tt::Cluster::instance().get_virtual_coordinate_from_physical_coordinates(this->id_, physical_coord);
 }
 
 CoreCoord Device::worker_core_from_logical_core(const CoreCoord &logical_core) const {
@@ -1444,39 +1475,11 @@ void Device::deallocate_buffers(SubDeviceId sub_device_id) {
 }
 
 std::optional<DeviceAddr> Device::lowest_occupied_compute_l1_address() const {
-    // Global bank id needs to look up a bank from the compute grid (not the storage grid)
-    // Since banks are lockstep in an allocator it doesn't matter if the actual core matches or not
-    auto global_bank_id =
-        this->bank_ids_from_logical_core(BufferType::L1, *this->compute_cores_.begin())[0];
-    const auto& allocator = this->get_initialized_allocator();
-    return allocator::lowest_occupied_l1_address(*allocator, global_bank_id);
+    return sub_device_manager_tracker_->lowest_occupied_compute_l1_address();
 }
 
 std::optional<DeviceAddr> Device::lowest_occupied_compute_l1_address(tt::stl::Span<const SubDeviceId> sub_device_ids) const {
-    // Sub-device banks are currently all compute banks
-    // Since banks are lockstep in an allocator it doesn't matter which core is used
-    uint32_t sub_device_bank_id = 0;
-    DeviceAddr lowest_addr = std::numeric_limits<DeviceAddr>::max();
-    for (const auto& sub_device_id : sub_device_ids) {
-        const auto& allocator =
-            sub_device_manager_tracker_->get_active_sub_device_manager()->sub_device_allocator(sub_device_id);
-        if (allocator) {
-            auto found_addr = allocator::lowest_occupied_l1_address(*allocator, sub_device_bank_id);
-            if (found_addr.has_value()) {
-                lowest_addr = std::min(lowest_addr, *found_addr);
-            }
-        }
-    }
-    // sub-device allocators sit below global allocator. If an address is found for a sub-device, no need to check the global allocator
-    if (lowest_addr != std::numeric_limits<DeviceAddr>::max()) {
-        return lowest_addr;
-    } else {
-        const auto &allocator = this->get_initialized_allocator();
-        // Global bank id needs to look up a bank from the compute grid (not the storage grid)
-        auto global_bank_id =
-            this->bank_ids_from_logical_core(BufferType::L1, *this->compute_cores_.begin())[0];
-        return allocator::lowest_occupied_l1_address(*allocator, global_bank_id);
-    }
+    return sub_device_manager_tracker_->lowest_occupied_compute_l1_address(sub_device_ids);
 }
 
 std::pair<int, int> Device::build_processor_type_to_index(uint32_t programmable_core, uint32_t processor_class) const {

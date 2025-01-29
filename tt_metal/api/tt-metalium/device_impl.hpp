@@ -5,7 +5,6 @@
 #pragma once
 
 #include <memory>
-#include <mutex>
 #include <utility>
 
 #include "device.hpp"
@@ -42,7 +41,7 @@ public:
         std::size_t trace_region_size,
         tt::stl::Span<const std::uint32_t> l1_bank_remap = {},
         bool minimal = false,
-        uint32_t worker_core = 0,
+        uint32_t worker_thread_core = 0,
         uint32_t completion_queue_reader_core = 0);
 
     ~Device() override;
@@ -245,8 +244,6 @@ public:
     std::tuple<SubDeviceManagerId, SubDeviceId> create_sub_device_manager_with_fabric(
         tt::stl::Span<const SubDevice> sub_devices, DeviceAddr local_l1_size) override;
 
-    uint32_t get_completion_queue_reader_core() const override { return completion_queue_reader_core_; }
-
     bool is_mmio_capable() const override;
     std::vector<std::vector<chip_id_t>> get_tunnels_from_mmio() const override { return tunnels_from_mmio_; }
 
@@ -254,7 +251,8 @@ private:
     static constexpr uint32_t DEFAULT_NUM_SUB_DEVICES = 1;
 
     void initialize_cluster();
-    std::unique_ptr<Allocator> initialize_allocator(size_t l1_small_size, size_t trace_region_size, tt::stl::Span<const std::uint32_t> l1_bank_remap = {});
+    std::unique_ptr<Allocator> initialize_allocator(
+        size_t l1_small_size, size_t trace_region_size, tt::stl::Span<const std::uint32_t> l1_bank_remap = {});
     void initialize_build();
     void initialize_device_kernel_defines();
     void initialize_device_bank_to_noc_tables(const HalProgrammableCoreType &core_type, CoreCoord virtual_core);
@@ -280,7 +278,7 @@ private:
     CoreCoord physical_worker_core_from_logical_core(const CoreCoord &logical_core) const;
     CoreCoord dram_core_from_dram_channel(uint32_t dram_channel) const;
     CoreType core_type_from_physical_core(const CoreCoord &physical_core) const;
-    CoreCoord virtual_core_from_physical_core(const CoreCoord &physical_coord, const CoreType& core_type) const;
+    CoreCoord virtual_core_from_physical_core(const CoreCoord& physical_coord) const;
 
     chip_id_t id_;
     uint32_t build_key_ = 0;
