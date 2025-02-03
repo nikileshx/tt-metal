@@ -44,22 +44,6 @@ namespace tt_metal {
 
 namespace {
 
-#if defined(TRACY_ENABLE)
-
-std::unordered_map<int, std::string> global_mempool_names;
-std::mutex global_mempool_names_mutex;
-
-static const char* get_buffer_location_name(BufferType buffer_type, int device_id) {
-    std::scoped_lock<std::mutex> lock(global_mempool_names_mutex);
-    int name_combo = (int)buffer_type * 1000 + device_id;
-    if (global_mempool_names.find(name_combo) == global_mempool_names.end()) {
-        std::string global_mempool_name = fmt::format("Device {} {}", device_id, magic_enum::enum_name(buffer_type));
-        global_mempool_names.emplace(name_combo, global_mempool_name);
-    }
-    return global_mempool_names[name_combo].c_str();
-}
-#endif
-
 CoreRangeSet GetCoreRangeSet(const std::variant<CoreCoord, CoreRange, CoreRangeSet>& specified_core_spec) {
     ZoneScoped;
     return std::visit(
@@ -888,61 +872,6 @@ void CompileProgram(IDevice* device, Program& program, bool fd_bootloader_mode) 
     program.compile(device, fd_bootloader_mode);
 }
 
-DeviceAddr AllocateBuffer(Buffer* buffer) {
-    if (GraphTracker::instance().hook_allocate(buffer)) {
-        GraphTracker::instance().track_allocate(buffer);
-        return 0;
-    }
-    if (buffer->sub_device_manager_id().has_value()) {
-        TT_FATAL(
-            *(buffer->sub_device_manager_id()) == buffer->device()->get_active_sub_device_manager_id(),
-            "Sub-device manager id mismatch. Buffer sub-device manager id: {}, Device active sub-device manager id: {}",
-            *buffer->sub_device_manager_id(),
-            buffer->device()->get_active_sub_device_manager_id());
-    }
-
-    DeviceAddr allocated_addr = buffer->allocator()->allocate_buffer(buffer);
-
-    // Assertion here because buffer class returns a u32 when address is queried
-    // Requires updating all use cases of buffer address to accept a u64 to remove
-    TT_ASSERT(allocated_addr <= std::numeric_limits<uint32_t>::max());
-
-    GraphTracker::instance().track_allocate(buffer);
-
-#if defined(TRACY_ENABLE)
-    if (tt::llrt::RunTimeOptions::get_instance().get_profiler_buffer_usage_enabled()) {
-        TracyAllocN(
-            reinterpret_cast<void const*>(allocated_addr),
-            buffer->size(),
-            get_buffer_location_name(buffer->buffer_type(), buffer->device()->id()));
-    }
-#endif
-    return allocated_addr;
-}
-
-void DeallocateBuffer(Buffer* buffer) {
-    GraphTracker::instance().track_deallocate(buffer);
-    if (GraphTracker::instance().hook_deallocate(buffer)) {
-        return;
-    }
-
-#if defined(TRACY_ENABLE)
-    if (tt::llrt::RunTimeOptions::get_instance().get_profiler_buffer_usage_enabled()) {
-        TracyFreeN(
-            reinterpret_cast<void const*>(buffer->address()),
-            get_buffer_location_name(buffer->buffer_type(), buffer->device()->id()));
-    }
-#endif
-    if (buffer->sub_device_manager_id().has_value()) {
-        TT_FATAL(
-            *(buffer->sub_device_manager_id()) == buffer->device()->get_active_sub_device_manager_id(),
-            "Sub-device manager id mismatch. Buffer sub-device manager id: {}, Device active sub-device manager id: {}",
-            *buffer->sub_device_manager_id(),
-            buffer->device()->get_active_sub_device_manager_id());
-    }
-    buffer->allocator()->deallocate_buffer(buffer);
-}
-
 void SynchronizeWorkerThreads(const std::vector<IDevice*>& workers) {
     if (tt::tt_metal::detail::InWorkerThread()) {
         // Early exit if in a worker thread, since waiting for the worker
@@ -1280,7 +1209,7 @@ std::shared_ptr<Buffer> CreateBuffer(const ShardedBufferConfig& config, SubDevic
 
 void DeallocateBuffer(Buffer& buffer) { buffer.deallocate(); }
 
-void AssignGlobalBufferToProgram(std::shared_ptr<Buffer> buffer, Program& program) {
+void AssignGlobalBufferToProgram(const std::shared_ptr<Buffer>& buffer, Program& program) {
     detail::DispatchStateCheck(not buffer->device()->using_slow_dispatch());
     program.add_buffer(buffer);
 }
@@ -1315,7 +1244,7 @@ void SetRuntimeArgs(
     IDevice* device,
     const std::shared_ptr<Kernel>& kernel,
     const std::variant<CoreCoord, CoreRange, CoreRangeSet>& core_spec,
-    std::shared_ptr<RuntimeArgs> runtime_args) {
+    const std::shared_ptr<RuntimeArgs>& runtime_args) {
     detail::DispatchStateCheck(not device->using_slow_dispatch());
     SetRuntimeArgsImpl(kernel, core_spec, std::move(runtime_args), false);
 }
