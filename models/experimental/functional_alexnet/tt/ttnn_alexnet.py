@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
+# SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
 
 # SPDX-License-Identifier: Apache-2.0
 
@@ -8,10 +8,6 @@ import torch.nn as nn
 
 def ttnn_alexnet(device, x, parameters):
     batch_size = x.shape[0]
-
-    x = ttnn.permute(x, (0, 2, 3, 1))
-
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT)
 
     conv_config = ttnn.Conv2dConfig(
         dtype=ttnn.bfloat16,
@@ -39,7 +35,7 @@ def ttnn_alexnet(device, x, parameters):
     conv1_weight = ttnn.from_device(parameters.features[0].weight)
     conv1_bias = ttnn.from_device(parameters.features[0].bias)
 
-    [x, [out_height, out_width], [weights_device, bias_device]] = ttnn.conv2d(
+    [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
         weight_tensor=conv1_weight,
         in_channels=3,
@@ -58,7 +54,7 @@ def ttnn_alexnet(device, x, parameters):
         debug=False,
         groups=1,
         memory_config=None,
-        return_weights_and_bias=True,
+        return_weights_and_bias=False,
         return_output_dim=True,
     )
 
@@ -74,12 +70,10 @@ def ttnn_alexnet(device, x, parameters):
         dilation=[1, 1],
     )
 
-    x = ttnn.reshape(x, (batch_size, 27, 27, 64))
-
     conv2_weight = ttnn.from_device(parameters.features[3].weight)
     conv2_bias = ttnn.from_device(parameters.features[3].bias)
 
-    [x, [out_height, out_width], [weights_device, bias_device]] = ttnn.conv2d(
+    [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
         weight_tensor=conv2_weight,
         in_channels=64,
@@ -90,13 +84,13 @@ def ttnn_alexnet(device, x, parameters):
         stride=(1, 1),
         padding=(2, 2),
         batch_size=batch_size,
-        input_height=x.shape[1],
-        input_width=x.shape[2],
+        input_height=27,
+        input_width=27,
         conv_config=conv_config,
         conv_op_cache={},
         debug=False,
         groups=1,
-        return_weights_and_bias=True,
+        return_weights_and_bias=False,
         return_output_dim=True,
     )
 
@@ -115,9 +109,7 @@ def ttnn_alexnet(device, x, parameters):
     conv3_weight = ttnn.from_device(parameters.features[6].weight)
     conv3_bias = ttnn.from_device(parameters.features[6].bias)
 
-    x = ttnn.reshape(x, (batch_size, 13, 13, 192))
-
-    [x, [out_height, out_width], [weights_device, bias_device]] = ttnn.conv2d(
+    [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
         weight_tensor=conv3_weight,
         in_channels=192,
@@ -128,20 +120,20 @@ def ttnn_alexnet(device, x, parameters):
         stride=(1, 1),
         padding=(1, 1),
         batch_size=batch_size,
-        input_height=x.shape[1],
-        input_width=x.shape[2],
+        input_height=13,
+        input_width=13,
         conv_config=conv_config,
         conv_op_cache={},
         debug=False,
         groups=1,
-        return_weights_and_bias=True,
+        return_weights_and_bias=False,
         return_output_dim=True,
     )
 
     conv4_weight = ttnn.from_device(parameters.features[8].weight)
     conv4_bias = ttnn.from_device(parameters.features[8].bias)
 
-    [x, [out_height, out_width], [weights_device, bias_device]] = ttnn.conv2d(
+    [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
         weight_tensor=conv4_weight,
         in_channels=384,
@@ -158,14 +150,14 @@ def ttnn_alexnet(device, x, parameters):
         conv_op_cache={},
         debug=False,
         groups=1,
-        return_weights_and_bias=True,
+        return_weights_and_bias=False,
         return_output_dim=True,
     )
 
     conv5_weight = ttnn.from_device(parameters.features[10].weight)
     conv5_bias = ttnn.from_device(parameters.features[10].bias)
 
-    [x, [out_height, out_width], [weights_device, bias_device]] = ttnn.conv2d(
+    [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
         weight_tensor=conv5_weight,
         in_channels=256,
@@ -182,7 +174,7 @@ def ttnn_alexnet(device, x, parameters):
         conv_op_cache={},
         debug=False,
         groups=1,
-        return_weights_and_bias=True,
+        return_weights_and_bias=False,
         return_output_dim=True,
     )
 
@@ -196,49 +188,44 @@ def ttnn_alexnet(device, x, parameters):
         stride=[2, 2],
         padding=[0, 0],
         dilation=[1, 1],
+        memory_config=ttnn.L1_MEMORY_CONFIG,
     )
 
-    x = ttnn.reshape(x, (batch_size, 6, 6, 256))
+    x = ttnn.reshape(x, (batch_size, 6, 6, 256), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     # ttnn currently only support AAP2 with output_size=(1,1), so torch op has been used.
 
     avg_pool = nn.AdaptiveAvgPool2d(output_size=(6, 6))
 
-    x = ttnn.to_memory_config(x, memory_config=ttnn.L1_MEMORY_CONFIG)
-    tt_output_tensor = ttnn.permute(x, (0, 3, 1, 2))
-    tt_output_tensor = ttnn.from_device(tt_output_tensor)
+    tt_output_tensor = ttnn.permute(x, (0, 3, 1, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     torch_output_tensor = ttnn.to_torch(tt_output_tensor)
 
     x = avg_pool(torch_output_tensor)
 
-    x = ttnn.from_torch(x, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    x = ttnn.from_torch(
+        x, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
 
-    x = ttnn.reshape(x, (x.shape[0], -1))
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT)
+    x = ttnn.reshape(x, (x.shape[0], -1), memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x = ttnn.linear(x, parameters.classifier[1].weight, bias=parameters.classifier[1].bias, activation="relu")
-    x = ttnn.linear(x, parameters.classifier[4].weight, bias=parameters.classifier[4].bias, activation="relu")
-    x = ttnn.linear(x, parameters.classifier[6].weight, bias=parameters.classifier[6].bias)
+    x = ttnn.linear(
+        x,
+        parameters.classifier[1].weight,
+        bias=parameters.classifier[1].bias,
+        activation="relu",
+        memory_config=ttnn.L1_MEMORY_CONFIG,
+    )
+
+    x = ttnn.linear(
+        x,
+        parameters.classifier[4].weight,
+        bias=parameters.classifier[4].bias,
+        activation="relu",
+        memory_config=ttnn.L1_MEMORY_CONFIG,
+    )
+    x = ttnn.linear(
+        x, parameters.classifier[6].weight, bias=parameters.classifier[6].bias, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
 
     return x
-
-
-def preprocess_conv_parameter(parameter, *, dtype):
-    parameter = ttnn.from_torch(parameter, dtype=dtype)
-    return parameter
-
-
-def custom_preprocessor(model, device):
-    parameters = {}
-    if isinstance(model, nn.Conv2d):
-        weight = model.weight
-        bias = model.bias
-        while weight.dim() < 4:
-            weight = weight.unsqueeze(0)
-        while bias.dim() < 4:
-            bias = bias.unsqueeze(0)
-        parameters["weight"] = preprocess_conv_parameter(weight, dtype=ttnn.bfloat16)
-        parameters["bias"] = preprocess_conv_parameter(bias, dtype=ttnn.bfloat16)
-
-    return parameters
