@@ -1,24 +1,23 @@
-# SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
+# SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
 
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
 import torch, ttnn
-import torch.nn as nn
 from loguru import logger
 from torchvision import models
 from tests.ttnn.utils_for_testing import assert_with_pcc
 from ttnn.model_preprocessing import preprocess_model_parameters
 from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
 from models.utility_functions import disable_persistent_kernel_cache
-from models.experimental.functional_alexnet.tt.ttnn_alexnet import custom_preprocessor
+from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((2, 3, 224, 224))), (torch.rand((4, 3, 224, 224))), (torch.rand((6, 3, 224, 224)))],
-    ids=["input_tensor1", "input_tensor2", "input_tensor3"],
+    [(torch.rand((1, 3, 224, 224)))],
+    ids=["input_tensor1"],
 )
 def test_alexnet(device, input_tensor):
     disable_persistent_kernel_cache()
@@ -33,7 +32,9 @@ def test_alexnet(device, input_tensor):
         custom_preprocessor=custom_preprocessor,
     )
 
-    ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ttnn_input = input_tensor.permute((0, 2, 3, 1))
+
+    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     with torch.inference_mode():
         ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)

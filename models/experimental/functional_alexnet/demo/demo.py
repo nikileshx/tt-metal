@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: © 2024 Tenstorrent Inc.
+# SPDX-FileCopyrightText: © 2025 Tenstorrent Inc.
 
 # SPDX-License-Identifier: Apache-2.0
 
@@ -8,13 +8,12 @@ import pytest
 import torch, ttnn
 from PIL import Image
 from loguru import logger
-from datasets import load_dataset
 from torch.utils.data import DataLoader
 from torchvision import models, transforms, datasets
 from ttnn.model_preprocessing import preprocess_model_parameters
 from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
 from models.utility_functions import disable_persistent_kernel_cache, disable_compilation_reports
-from models.experimental.functional_alexnet.tt.ttnn_alexnet import custom_preprocessor
+from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
 
 
 def get_dataset(batch_size):
@@ -64,8 +63,9 @@ def run_alexnet_on_imageFolder(device, batch_size):
     )
 
     test_input = get_dataset(batch_size=batch_size)
+    ttnn_input = test_input.permute((0, 2, 3, 1))
 
-    ttnn_input = ttnn.from_torch(test_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     with torch.inference_mode():
         ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)
@@ -125,7 +125,9 @@ def run_alexnet_on_mnist(device, batch_size, iterations):
         dataset_ttnn_correct = 0
 
         # ttnn predictions
-        ttnn_input = ttnn.from_torch(x, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+        ttnn_input = x.permute((0, 2, 3, 1))
+        ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+
         ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)
         ttnn_output_tensor = ttnn.to_torch(ttnn_output_tensor)
         ttnn_predicted_probabilities = torch.nn.functional.softmax(ttnn_output_tensor, dim=1)

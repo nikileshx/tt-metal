@@ -2,7 +2,7 @@
 
 
 # Platforms:
-    GS E150, WH N150, WH N300
+    GS E150, WH N300
 
 
 ## Introduction
