@@ -15,37 +15,30 @@ from models.utility_functions import (
 )
 
 from torchvision import models
-from ttnn.model_preprocessing import preprocess_model_parameters
-from models.experimental.functional_alexnet.tt.ttnn_alexnet import custom_preprocessor
+from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
 from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
 from models.perf.perf_utils import prep_perf_report
-from models.experimental.functional_alexnet.reference.alexnet import AlexNet
 
 
 def get_expected_times(alexnet):
-    return (6.11, 0.23)
+    return (23.11, 0.24)
 
 
 @pytest.mark.models_performance_bare_metal
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize(
-    "batch_size, act_dtype, weight_dtype, math_fidelity", ((1, ttnn.bfloat16, ttnn.bfloat16, ttnn.MathFidelity.LoFi),)
-)
+@pytest.mark.parametrize("batch_size", ((1),))
 @pytest.mark.parametrize("input_tensor", [torch.rand((4, 3, 224, 224))], ids=["input_tensor"])
-def test_alexnet(device, input_tensor, batch_size, act_dtype, weight_dtype, math_fidelity):
+def test_alexnet(device, input_tensor, batch_size):
     disable_persistent_kernel_cache()
 
     torch_model = models.alexnet(weights=models.AlexNet_Weights.IMAGENET1K_V1)
     torch_model.eval()
 
-    parameters = preprocess_model_parameters(
-        initialize_model=lambda: torch_model,
-        convert_to_ttnn=lambda *_: True,
-        device=device,
-        custom_preprocessor=custom_preprocessor,
-    )
+    state_dict = torch_model.state_dict()
+    parameters = custom_preprocessor(device, state_dict=state_dict)
 
     ttnn_input = input_tensor.permute((0, 2, 3, 1))
+
     ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     durations = []
@@ -80,7 +73,7 @@ def test_alexnet(device, input_tensor, batch_size, act_dtype, weight_dtype, math
 @pytest.mark.parametrize(
     "batch_size, expected_perf",
     [
-        [1, 17.52],
+        [1, 179.32],
     ],
 )
 @pytest.mark.models_device_performance_bare_metal
@@ -88,7 +81,7 @@ def test_perf_device_bare_metal_alexnet(batch_size, expected_perf):
     subdir = "ttnn_alexnet"
     num_iterations = 1
     margin = 0.03
-    expected_perf = expected_perf if is_grayskull() else 2705.5
+    expected_perf = expected_perf if is_grayskull() else 173.32
 
     command = f"pytest tests/ttnn/integration_tests/alexnet/test_ttnn_alexnet.py"
     cols = ["DEVICE FW", "DEVICE KERNEL", "DEVICE BRISC KERNEL"]

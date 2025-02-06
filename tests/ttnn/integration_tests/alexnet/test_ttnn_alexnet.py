@@ -7,7 +7,6 @@ import torch, ttnn
 from loguru import logger
 from torchvision import models
 from tests.ttnn.utils_for_testing import assert_with_pcc
-from ttnn.model_preprocessing import preprocess_model_parameters
 from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
 from models.utility_functions import disable_persistent_kernel_cache
 from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
@@ -25,12 +24,8 @@ def test_alexnet(device, input_tensor):
     torch_model = models.alexnet(weights=models.AlexNet_Weights.IMAGENET1K_V1)
     torch_model.eval()
 
-    parameters = preprocess_model_parameters(
-        initialize_model=lambda: torch_model,
-        convert_to_ttnn=lambda *_: True,
-        device=device,
-        custom_preprocessor=custom_preprocessor,
-    )
+    state_dict = torch_model.state_dict()
+    parameters = custom_preprocessor(device, state_dict=state_dict)
 
     ttnn_input = input_tensor.permute((0, 2, 3, 1))
 
