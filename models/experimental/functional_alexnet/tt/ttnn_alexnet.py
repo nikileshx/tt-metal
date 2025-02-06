@@ -32,8 +32,7 @@ def ttnn_alexnet(device, x, parameters):
         packer_l1_acc=False,
     )
 
-    conv1_weight = ttnn.from_device(parameters.features[0].weight)
-    conv1_bias = ttnn.from_device(parameters.features[0].bias)
+    conv1_weight, conv1_bias = parameters["features.0"]
 
     [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
@@ -70,8 +69,7 @@ def ttnn_alexnet(device, x, parameters):
         dilation=[1, 1],
     )
 
-    conv2_weight = ttnn.from_device(parameters.features[3].weight)
-    conv2_bias = ttnn.from_device(parameters.features[3].bias)
+    conv2_weight, conv2_bias = parameters["features.3"]
 
     [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
@@ -106,8 +104,7 @@ def ttnn_alexnet(device, x, parameters):
         dilation=[1, 1],
     )
 
-    conv3_weight = ttnn.from_device(parameters.features[6].weight)
-    conv3_bias = ttnn.from_device(parameters.features[6].bias)
+    conv3_weight, conv3_bias = parameters["features.6"]
 
     [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
@@ -130,8 +127,7 @@ def ttnn_alexnet(device, x, parameters):
         return_output_dim=True,
     )
 
-    conv4_weight = ttnn.from_device(parameters.features[8].weight)
-    conv4_bias = ttnn.from_device(parameters.features[8].bias)
+    conv4_weight, conv4_bias = parameters["features.8"]
 
     [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
@@ -154,8 +150,7 @@ def ttnn_alexnet(device, x, parameters):
         return_output_dim=True,
     )
 
-    conv5_weight = ttnn.from_device(parameters.features[10].weight)
-    conv5_bias = ttnn.from_device(parameters.features[10].bias)
+    conv5_weight, conv5_bias = parameters["features.10"]
 
     [x, [out_height, out_width]] = ttnn.conv2d(
         input_tensor=x,
@@ -211,21 +206,21 @@ def ttnn_alexnet(device, x, parameters):
 
     x = ttnn.linear(
         x,
-        parameters.classifier[1].weight,
-        bias=parameters.classifier[1].bias,
+        parameters["classifier.1"][0],
+        bias=parameters["classifier.1"][1],
         activation="relu",
         memory_config=ttnn.L1_MEMORY_CONFIG,
     )
 
     x = ttnn.linear(
         x,
-        parameters.classifier[4].weight,
-        bias=parameters.classifier[4].bias,
+        parameters["classifier.4"][0],
+        bias=parameters["classifier.4"][1],
         activation="relu",
         memory_config=ttnn.L1_MEMORY_CONFIG,
     )
     x = ttnn.linear(
-        x, parameters.classifier[6].weight, bias=parameters.classifier[6].bias, memory_config=ttnn.L1_MEMORY_CONFIG
+        x, parameters["classifier.6"][0], bias=parameters["classifier.6"][1], memory_config=ttnn.L1_MEMORY_CONFIG
     )
 
     return x
