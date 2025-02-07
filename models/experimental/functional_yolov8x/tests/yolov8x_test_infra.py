@@ -66,9 +66,9 @@ def load_torch_model():
     return torch_model
 
 
-def load_ttnn_model(device, torch_model):
+def load_ttnn_model(device, torch_model, res=(640, 640)):
     state_dict = torch_model.state_dict()
-    parameters = custom_preprocessor(device, state_dict)
+    parameters = custom_preprocessor(device, state_dict, inp_h=res[0], inp_w=res[1])
     ttnn_model = partial(YOLOv8x, device=device, parameters=parameters)
     return ttnn_model
 
