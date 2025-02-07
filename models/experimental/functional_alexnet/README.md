@@ -16,10 +16,6 @@ The entry point to alexnet model is ttnn_alexnet in `models/experimental/functio
 
 ## How to Run
 
-To run on MNIST dataset:
-```
-pytest --disable-warnings models/experimental/functional_alexnet/demo/demo.py::test_alexnet_on_mnist
-```
 To run on Image folder:
 ```
 pytest --disable-warnings models/experimental/functional_alexnet/demo/demo.py::test_alexnet_on_imageFolder
@@ -27,4 +23,4 @@ pytest --disable-warnings models/experimental/functional_alexnet/demo/demo.py::t
 
 ## Inputs
 
-The demo receives input from MNIST datset and downloaded images.
+The demo receives input from downloaded images.
