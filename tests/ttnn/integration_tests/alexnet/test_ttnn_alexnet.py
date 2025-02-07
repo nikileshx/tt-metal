@@ -29,7 +29,13 @@ def test_alexnet(device, input_tensor):
 
     ttnn_input = input_tensor.permute((0, 2, 3, 1))
 
-    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ttnn_input = ttnn.from_torch(
+        ttnn_input,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        device=device,
+        memory_config=ttnn.L1_MEMORY_CONFIG,
+    )
 
     with torch.inference_mode():
         ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)
