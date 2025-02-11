@@ -15,7 +15,7 @@ from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((1, 3, 224, 224)))],
+    [(torch.rand((4, 3, 224, 224)))],
     ids=["input_tensor1"],
 )
 def test_alexnet(device, input_tensor):
