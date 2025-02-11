@@ -7,7 +7,7 @@ import torch, ttnn
 from loguru import logger
 from torchvision import models
 from tests.ttnn.utils_for_testing import assert_with_pcc
-from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
+from models.experimental.functional_alexnet.tt.ttnn_alexnet import TT_Alexnet
 from models.utility_functions import disable_persistent_kernel_cache
 from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
 
@@ -38,7 +38,9 @@ def test_alexnet(device, input_tensor):
     )
 
     with torch.inference_mode():
-        ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)
+        tt_model = TT_Alexnet(device, ttnn_input.shape, parameters)
+        ttnn_output_tensor = tt_model(ttnn_input)
+
         ttnn_output_tensor = ttnn.to_torch(ttnn_output_tensor)
 
     with torch.inference_mode():

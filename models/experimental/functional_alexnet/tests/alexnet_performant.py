@@ -7,6 +7,7 @@ import ttnn
 import pytest
 from models.experimental.functional_alexnet.tests.alexnet_test_infra import create_test_infra
 
+
 try:
     from tracy import signpost
 
@@ -44,7 +45,6 @@ def run_alexnet_inference(
 
     # # First run configures convs JIT
     test_infra.input_tensor = tt_inputs_host.to(device, input_mem_config)
-    print(test_infra.input_tensor.memory_config())
 
     test_infra.run()
     test_infra.validate()
@@ -195,13 +195,14 @@ def run_alexnet_trace_2cqs_inference(
     ttnn.release_trace(device, tid)
 
 
-@pytest.mark.parametrize("device_params", [{"l1_small_size": 32768, "trace_region_size": 800768}], indirect=True)
-@pytest.mark.parametrize("device_batch_size, act_dtype, weight_dtype", [(1, ttnn.bfloat16, ttnn.bfloat8_b)])
+@pytest.mark.parametrize("device_params", [{"l1_small_size": 24576, "trace_region_size": 1843200}], indirect=True)
+@pytest.mark.parametrize(
+    "device_batch_size, act_dtype, weight_dtype",
+    ((1, ttnn.bfloat16, ttnn.bfloat16),),
+)
+@pytest.mark.parametrize("enable_async_mode", (False, True), indirect=True)
 def test_run_alexnet_trace_inference(
-    device,
-    device_batch_size,
-    act_dtype,
-    weight_dtype,
+    device, use_program_cache, device_batch_size, act_dtype, weight_dtype, enable_async_mode
 ):
     run_alexnet_trace_inference(
         device,
