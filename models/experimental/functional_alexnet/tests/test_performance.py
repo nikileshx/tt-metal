@@ -16,18 +16,18 @@ from models.utility_functions import (
 
 from torchvision import models
 from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
-from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
+from models.experimental.functional_alexnet.tt.ttnn_alexnet import TT_Alexnet
 from models.perf.perf_utils import prep_perf_report
 
 
 def get_expected_times(alexnet):
-    return (23.11, 0.24)
+    return (24.05, 1.44)
 
 
 @pytest.mark.models_performance_bare_metal
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize("batch_size", ((1),))
-@pytest.mark.parametrize("input_tensor", [torch.rand((4, 3, 224, 224))], ids=["input_tensor"])
+@pytest.mark.parametrize("input_tensor", [torch.rand((1, 3, 224, 224))], ids=["input_tensor"])
 def test_alexnet(device, input_tensor, batch_size):
     disable_persistent_kernel_cache()
 
@@ -44,7 +44,8 @@ def test_alexnet(device, input_tensor, batch_size):
     durations = []
     for i in range(2):
         start = time.time()
-        ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)
+        tt_model = TT_Alexnet(device, ttnn_input.shape, parameters)
+        ttnn_output_tensor = tt_model(ttnn_input)
         ttnn_output_tensor = ttnn.from_device(ttnn_output_tensor)
         end = time.time()
         durations.append(end - start)
@@ -73,7 +74,7 @@ def test_alexnet(device, input_tensor, batch_size):
 @pytest.mark.parametrize(
     "batch_size, expected_perf",
     [
-        [1, 179.32],
+        [1, 253.4],
     ],
 )
 @pytest.mark.models_device_performance_bare_metal
@@ -81,7 +82,7 @@ def test_perf_device_bare_metal_alexnet(batch_size, expected_perf):
     subdir = "ttnn_alexnet"
     num_iterations = 1
     margin = 0.03
-    expected_perf = expected_perf if is_grayskull() else 173.32
+    expected_perf = expected_perf if is_grayskull() else 234.04
 
     command = f"pytest tests/ttnn/integration_tests/alexnet/test_ttnn_alexnet.py"
     cols = ["DEVICE FW", "DEVICE KERNEL", "DEVICE BRISC KERNEL"]

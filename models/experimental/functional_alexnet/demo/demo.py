@@ -9,7 +9,7 @@ import torch, ttnn
 from PIL import Image
 from loguru import logger
 from torchvision import models, transforms
-from models.experimental.functional_alexnet.tt.ttnn_alexnet import ttnn_alexnet
+from models.experimental.functional_alexnet.tt.ttnn_alexnet import TT_Alexnet
 from models.utility_functions import disable_persistent_kernel_cache, disable_compilation_reports
 from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
 
@@ -62,7 +62,8 @@ def run_alexnet_on_imageFolder(device, batch_size):
     ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     with torch.inference_mode():
-        ttnn_output_tensor = ttnn_alexnet(device, ttnn_input, parameters)
+        tt_model = TT_Alexnet(device, ttnn_input.shape, parameters)
+        ttnn_output_tensor = tt_model(ttnn_input)
         ttnn_output_tensor = ttnn.to_torch(ttnn_output_tensor)
         ttnn_predicted_probabilities = torch.nn.functional.softmax(ttnn_output_tensor, dim=1)
         _, ttnn_predicted_labels = torch.max(ttnn_predicted_probabilities, 1)
