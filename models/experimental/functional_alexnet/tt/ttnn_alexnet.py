@@ -129,10 +129,12 @@ class Linear:
         parameters,
         path,
         activation=None,
-        memory_config=ttnn.L1_MEMORY_CONFIG,
+        memory_config=ttnn.L1_WIDTH_SHARDED_MEMORY_CONFIG,
+        program_config=None,
     ):
         self.activation = activation
         self.memory_config = memory_config
+        self.program_config = program_config
 
         self.linear_weight, self.linear_bias = parameters[path]
 
@@ -147,8 +149,8 @@ class Linear:
             bias=self.linear_bias,
             activation=self.activation,
             memory_config=self.memory_config,
+            program_config=self.program_config,
         )
-
         return x
 
 
@@ -226,11 +228,23 @@ class TT_Alexnet:
             c2=256,
         )
 
-        self.linear1 = Linear(device, self.parameters, "classifier.1", activation="relu")
+        self.linear1 = Linear(device, self.parameters, "classifier.1")
 
-        self.linear2 = Linear(device, self.parameters, "classifier.4", activation="relu")
+        self.linear2 = Linear(device, self.parameters, "classifier.4")
 
-        self.linear3 = Linear(device, self.parameters, "classifier.6")
+        matmul_config = ttnn.MatmulMultiCoreReuseMultiCast1DProgramConfig(
+            compute_with_storage_grid_size=(8, 8),
+            in0_block_w=2,
+            out_subblock_h=1,
+            out_subblock_w=1,
+            per_core_M=1,
+            per_core_N=1,
+            fuse_batch=True,
+            fused_activation=None,
+            mcast_in0=True,
+        )
+
+        self.linear3 = Linear(device, self.parameters, "classifier.6", program_config=matmul_config)
 
     def __call__(self, x):
         x, out_height, out_width = self.conv1(x)
@@ -290,7 +304,10 @@ class TT_Alexnet:
         x = ttnn.reshape(x, (self.batch_size, -1), memory_config=ttnn.L1_MEMORY_CONFIG)
 
         x = self.linear1(x)
-        x = self.linear2(x)
-        x = self.linear3(x)
+        x = ttnn.relu(x)
 
+        x = self.linear2(x)
+        x = ttnn.relu(x)
+
+        x = self.linear3(x)
         return x

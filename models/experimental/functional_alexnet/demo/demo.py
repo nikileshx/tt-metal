@@ -89,7 +89,7 @@ def run_alexnet_on_imageFolder(device, batch_size):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("batch_size", [1, 2, 3, 4])
+@pytest.mark.parametrize("batch_size", [1, 2, 4, 8, 12])
 def test_alexnet_on_imageFolder(device, batch_size):
     disable_persistent_kernel_cache()
     disable_compilation_reports()
