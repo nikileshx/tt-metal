@@ -21,8 +21,10 @@ class Conv:
         batch_size=1,
         memory_config=None,
         change_shard=False,
+        block_shard=False,
         c1=None,
         c2=None,
+        reshard=True,
     ):
         self.device = device
         self.conv_weight, self.conv_bias = parameters[path]
@@ -32,6 +34,8 @@ class Conv:
         self.batch_size = batch_size
         self.change_shard = change_shard
         self.width_shard = width_shard
+        self.block_shard = block_shard
+        self.reshard = reshard
         self.c1 = c1
         self.c2 = c2
 
@@ -41,7 +45,7 @@ class Conv:
             activation="relu",
             shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
             input_channels_alignment=16 if c1 < 16 else 32,
-            reshard_if_not_optimal=True,
+            reshard_if_not_optimal=self.reshard,
             deallocate_activation=True,
             reallocate_halo_output=False,
             enable_act_double_buffer=False,
@@ -52,6 +56,9 @@ class Conv:
 
         if self.width_shard:
             self.conv_config.shard_layout = ttnn.TensorMemoryLayout.WIDTH_SHARDED
+
+        if self.block_shard:
+            self.conv_config.shard_layout = ttnn.TensorMemoryLayout.BLOCK_SHARDED
 
         if self.change_shard:
             self.conv_config.shard_layout = None
@@ -186,6 +193,7 @@ class TT_Alexnet:
             c1=64,
             c2=192,
         )
+
         self.conv3 = Conv(
             device,
             self.parameters,
@@ -199,7 +207,6 @@ class TT_Alexnet:
             c1=192,
             c2=384,
         )
-
         self.conv4 = Conv(
             device,
             self.parameters,
@@ -291,16 +298,15 @@ class TT_Alexnet:
             stride=[2, 2],
             padding=[0, 0],
             dilation=[1, 1],
-            memory_config=ttnn.L1_MEMORY_CONFIG,
         )
 
         x = ttnn.reshape(x, (self.batch_size, 6, 6, 256), memory_config=ttnn.L1_MEMORY_CONFIG)
 
-        x = ttnn.adaptive_avg_pool2d(x, ttnn.Shape([6, 6]))
+        x = ttnn.adaptive_avg_pool2d(x, ttnn.Shape([6, 6]), memory_config=ttnn.L1_MEMORY_CONFIG)
 
         x = ttnn.permute(x, (0, 3, 1, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
-        x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
+        x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
         x = ttnn.reshape(x, (self.batch_size, -1), memory_config=ttnn.L1_MEMORY_CONFIG)
 
         x = self.linear1(x)
