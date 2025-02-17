@@ -143,7 +143,7 @@ def test_C2f(device, input_tensor):
 
     with torch.inference_mode():
         ttnn_model_output, out_h, out_w = C2f(
-            device, ttnn_input, parameters, "model.2", 96, 96, n=2, shortcut=True, act_block_h=True
+            device, ttnn_input, parameters, "model.2", 96, 96, n=2, shortcut=True, act_block_h=True, inp_h=80, inp_w=80
         )
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
         ttnn_model_output = ttnn_model_output.reshape((1, out_h, out_w, ttnn_model_output.shape[-1]))
@@ -176,7 +176,7 @@ def test_SPPF(device, input_tensor):
     parameters = custom_preprocessor(device, state_dict)
 
     with torch.inference_mode():
-        ttnn_model_output, out_h, out_w = SPPF(device, ttnn_input, parameters, "model.9", 576, 576)
+        ttnn_model_output, out_h, out_w = SPPF(device, ttnn_input, parameters, "model.9", 576, 576, inp_h=20, inp_w=20)
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
         ttnn_model_output = ttnn_model_output.reshape((1, out_h, out_w, ttnn_model_output.shape[-1]))
         ttnn_model_output = ttnn_model_output.permute((0, 3, 1, 2))
@@ -277,7 +277,7 @@ def test_Detect_cv3(device, input_tensor, c1, c2, k, reg_max, idx):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [([torch.rand((1, 192, 80, 80)), torch.rand((1, 384, 40, 40)), torch.rand((1, 576, 20, 20))])],
+    [([torch.rand((1, 192, 40, 40)), torch.rand((1, 384, 20, 20)), torch.rand((1, 576, 10, 10))])],
     ids=["input_tensor1"],
 )
 def test_last_detect(device, input_tensor):
@@ -290,6 +290,7 @@ def test_last_detect(device, input_tensor):
     for i in range(len(input_tensor)):
         x = ttnn.from_torch(input_tensor[i], dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
         x = ttnn.permute(x, (0, 2, 3, 1))
+        x = ttnn.reshape(x, (1, 1, x.shape[1] * x.shape[2], x.shape[-1]))
         ttnn_input.append(x)
 
     state_dict = torch_model.state_dict()
@@ -358,7 +359,7 @@ def test_dist2bbox(device, distance, anchors):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor, stride",
-    [([torch.rand((1, 144, 80, 80)), torch.rand((1, 144, 40, 40)), torch.rand((1, 144, 20, 20))], [8.0, 16.0, 32.0])],
+    [([torch.rand((1, 144, 40, 40)), torch.rand((1, 144, 20, 20)), torch.rand((1, 144, 10, 10))], [8.0, 16.0, 32.0])],
     ids=["input_tensor"],
 )
 def test_make_anchors(device, input_tensor, stride):
@@ -389,7 +390,9 @@ def test_yolov8m(device, input_tensor):
 
     parameters = custom_preprocessor(device, state_dict)
 
-    ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ttnn_input = input_tensor.permute((0, 2, 3, 1))
+
+    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     with torch.inference_mode():
         ttnn_model_output = YOLOv8m(device, ttnn_input, parameters)[0]
