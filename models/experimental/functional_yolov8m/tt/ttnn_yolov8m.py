@@ -148,14 +148,6 @@ def Bottleneck(
         inp_h=inp_h,
         inp_w=inp_w,
     )
-    # ....
-
-    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    # x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
-
-    cv1 = ttnn.sharded_to_interleaved(cv1, ttnn.L1_MEMORY_CONFIG)
-    cv1 = ttnn.to_layout(cv1, ttnn.ROW_MAJOR_LAYOUT)
-    cv1 = ttnn.reshape(cv1, (1, out_h, out_w, cv1.shape[-1]))
 
     cv2, out_h, out_w = Conv(
         device,
@@ -175,23 +167,12 @@ def Bottleneck(
 
     ttnn.deallocate(cv1)
 
-    cv2 = ttnn.sharded_to_interleaved(cv2, ttnn.L1_MEMORY_CONFIG)
-    cv2 = ttnn.to_layout(cv2, ttnn.ROW_MAJOR_LAYOUT)
-    cv2 = ttnn.reshape(cv2, (1, out_h, out_w, x.shape[-1]))
+    if tilize:
+        x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, device=device)
-    cv2 = ttnn.to_layout(cv2, ttnn.TILE_LAYOUT, device=device)
+    add = shortcut
 
-    add = shortcut and c1 == c2
-
-    return x + cv2 if add else cv2
-
-    # if tilize:
-    #     x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
-
-    # add = shortcut
-
-    # return ttnn.add(x, cv2, memory_config=ttnn.L1_MEMORY_CONFIG) if add else cv2
+    return ttnn.add(x, cv2, memory_config=ttnn.L1_MEMORY_CONFIG) if add else cv2
 
 
 def C2f(
@@ -231,7 +212,6 @@ def C2f(
 
     cv1 = ttnn.sharded_to_interleaved(cv1, ttnn.L1_MEMORY_CONFIG)
     cv1 = ttnn.to_layout(cv1, ttnn.ROW_MAJOR_LAYOUT)
-    cv1 = ttnn.reshape(cv1, (1, out_h, out_w, cv1.shape[-1]))  # .
     y = list(ttnn.split(cv1, 2, 3))
     ttnn.deallocate(cv1)
 
@@ -563,6 +543,8 @@ def DetectionModel(device, x, parameters, res=(320, 320)):
     x, out_h, out_w = C2f(device, x, parameters, "model.15", 576, 192, n=2, shortcut=False, inp_h=inp_h, inp_w=inp_w)
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
+    # x = ttnn.reshape(x, (1, out_h, out_w, x.shape[-1]))
 
     fifteen = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
