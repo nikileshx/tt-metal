@@ -7,7 +7,6 @@ import ttnn
 
 from models.experimental.functional_yolov8m.tt.ttnn_yolov8m_utils import (
     autopad,
-    ttnn_make_anchors,
     ttnn_decode_bboxes,
 )
 
@@ -34,6 +33,7 @@ def Conv(
     is_dfl=False,
     width_shard=False,
     deallocate_activation=False,
+    memory_config=None,
 ):
     p = autopad(k, p, d)
 
@@ -99,14 +99,12 @@ def Conv(
         conv_op_cache={},
         debug=False,
         groups=g,
-        memory_config=None,
+        memory_config=memory_config,
         return_weights_and_bias=True,
         return_output_dim=True,
     )
 
     if is_dfl:
-        x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-        x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
         x = ttnn.reshape(x, (x.shape[0], 4, -1))
         return x
 
@@ -337,12 +335,9 @@ def DFL(device, x, parameters, path, c1=16):
 
     x = ttnn.reshape(x, (b, 4, c1, a))
 
-    x = ttnn.permute(x, (0, 2, 1, 3))
+    x = ttnn.softmax(x, dim=2)
 
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT)
-    x = ttnn.softmax(x, dim=1)
-
-    x = ttnn.permute(x, (0, 2, 3, 1))
+    x = ttnn.permute(x, (0, 1, 3, 2))
 
     x = Conv(
         device,
@@ -360,21 +355,18 @@ def DFL(device, x, parameters, path, c1=16):
         inp_h=x.shape[1],
         inp_w=x.shape[2],
         is_dfl=True,
+        change_shard=True,
+        memory_config=ttnn.L1_MEMORY_CONFIG,
     )
 
     return x
 
 
 def Detect(device, x, parameters, path, nc=80, ch=()):
-    dynamic = False
-    format = None
-    self_shape = None
     nc = nc
     nl = len(ch)
     reg_max = 16
     no = nc + reg_max * 4
-
-    stride = [8.0, 16.0, 32.0]
 
     c2, c3 = max((16, ch[0] // 4, reg_max * 4)), max(ch[0], min(nc, 100))
 
@@ -405,44 +397,27 @@ def Detect(device, x, parameters, path, nc=80, ch=()):
             inp_h=inp_h,
             inp_w=inp_w,
         )[0]
-        x[i] = ttnn.concat((a, b), dim=3)
+        x[i] = ttnn.concat((a, b), dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     shape = x[0].shape
 
-    if format != "imx" and (dynamic or self_shape != shape):
-        temp = ttnn_make_anchors(device, x, stride, 0.5)
-        ls = []
-        for i in temp:
-            i = ttnn.sharded_to_interleaved(i, ttnn.L1_MEMORY_CONFIG)
-            i = ttnn.to_layout(i, ttnn.ROW_MAJOR_LAYOUT)
-            i = ttnn.permute(i, (1, 0))
-            ls.append(i)
-
-        anchors, strides = ls[0], ls[1]
-        anchors = ttnn.reshape(anchors, (-1, anchors.shape[0], anchors.shape[1]))
-        self_shape = shape
+    anchors, strides = parameters["anchors"], parameters["strides"]
 
     xi = []
     for i in x:
-        i = ttnn.sharded_to_interleaved(i, ttnn.L1_MEMORY_CONFIG)
-        i = ttnn.to_layout(i, ttnn.ROW_MAJOR_LAYOUT)
-        i = ttnn.permute(i, (0, 3, 1, 2))
-        i = ttnn.reshape(i, (shape[0], no, -1))
-        i = ttnn.to_layout(i, ttnn.TILE_LAYOUT)
+        i = ttnn.reshape(i, (shape[0], -1, no), memory_config=ttnn.L1_MEMORY_CONFIG)
         xi.append(i)
 
-    x_cat = ttnn.concat(xi, 2)
+    x_cat = ttnn.concat(xi, 1, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x_cat = ttnn.permute(x_cat, (0, 2, 1), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     box = ttnn.slice(x_cat, [0, 0, 0], [1, 64, x_cat.shape[2]])
     cls = ttnn.slice(x_cat, [0, 64, 0], [1, 144, x_cat.shape[2]])
 
     dfl = DFL(device, box, parameters, f"{path}.dfl")
 
-    anchors = ttnn.to_layout(anchors, ttnn.TILE_LAYOUT)
-    strides = ttnn.to_layout(strides, ttnn.TILE_LAYOUT)
-
     dbox = ttnn_decode_bboxes(device, dfl, anchors)
-
     dbox = dbox * strides
 
     return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]
@@ -543,8 +518,6 @@ def DetectionModel(device, x, parameters, res=(320, 320)):
     x, out_h, out_w = C2f(device, x, parameters, "model.15", 576, 192, n=2, shortcut=False, inp_h=inp_h, inp_w=inp_w)
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    # x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
-    # x = ttnn.reshape(x, (1, out_h, out_w, x.shape[-1]))
 
     fifteen = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
@@ -561,7 +534,6 @@ def DetectionModel(device, x, parameters, res=(320, 320)):
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-
     eighteen = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.DRAM_MEMORY_CONFIG)
 
     x, out_h, out_w = Conv(

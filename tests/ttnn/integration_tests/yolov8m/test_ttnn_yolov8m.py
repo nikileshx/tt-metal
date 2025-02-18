@@ -16,7 +16,6 @@ from models.experimental.functional_yolov8m.reference import yolov8m_utils
 from models.experimental.functional_yolov8m.tt.ttnn_yolov8m import Conv, C2f, SPPF, Detect_cv2, Detect, DFL
 from models.experimental.functional_yolov8m.tt.ttnn_yolov8m_utils import (
     ttnn_decode_bboxes,
-    ttnn_make_anchors,
     custom_preprocessor,
 )
 
@@ -43,20 +42,24 @@ def decode_bboxes(distance, anchor_points, xywh=True, dim=1):
     return torch.cat((x1y1, x2y2), dim)
 
 
-def make_anchors(feats, strides, grid_cell_offset=0.5):
+def make_anchors(device, feats, strides, grid_cell_offset=0.5):
     anchor_points, stride_tensor = [], []
     assert feats is not None
-    dtype, device = feats[0].dtype, feats[0].device
     for i, stride in enumerate(strides):
-        h, w = feats[i].shape[2:] if isinstance(feats, list) else (int(feats[i][0]), int(feats[i][1]))
-        sx = torch.arange(end=w, device=device, dtype=dtype) + grid_cell_offset
-        sy = torch.arange(end=h, device=device, dtype=dtype) + grid_cell_offset
-
+        h, w = feats[i]
+        sx = torch.arange(end=w) + grid_cell_offset
+        sy = torch.arange(end=h) + grid_cell_offset
         sy, sx = torch.meshgrid(sy, sx)
         anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
-        stride_tensor.append(torch.full((h * w, 1), stride, dtype=dtype, device=device))
+        stride_tensor.append(torch.full((h * w, 1), stride))
 
-    return torch.cat(anchor_points), torch.cat(stride_tensor)
+    a = torch.cat(anchor_points).transpose(0, 1).unsqueeze(0)
+    b = torch.cat(stride_tensor).transpose(0, 1)
+
+    return (
+        ttnn.from_torch(a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+        ttnn.from_torch(b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+    )
 
 
 class Ensemble(nn.ModuleList):
@@ -311,14 +314,14 @@ def test_last_detect(device, input_tensor):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 64, 8400)))], ids=["input_tensor1"])
+@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 64, 2100)))], ids=["input_tensor1"])
 def test_DFL(device, input_tensor):
     disable_persistent_kernel_cache()
 
     torch_model = attempt_load("yolov8m.pt", map_location="cpu")
     torch_model.eval()
 
-    ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
 
     state_dict = torch_model.state_dict()
 
@@ -357,29 +360,6 @@ def test_dist2bbox(device, distance, anchors):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize(
-    "input_tensor, stride",
-    [([torch.rand((1, 144, 40, 40)), torch.rand((1, 144, 20, 20)), torch.rand((1, 144, 10, 10))], [8.0, 16.0, 32.0])],
-    ids=["input_tensor"],
-)
-def test_make_anchors(device, input_tensor, stride):
-    ttnn_input = []
-    for i in range(len(input_tensor)):
-        x = ttnn.from_torch(input_tensor[i], dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
-        x = ttnn.permute(x, (0, 2, 3, 1))
-        ttnn_input.append(x)
-
-    ttnn_model_output = ttnn_make_anchors(device, ttnn_input, stride)[0]
-    ttnn_model_output = ttnn.to_torch(ttnn_model_output)
-    print(ttnn_model_output.shape)
-
-    torch_model_output = make_anchors(input_tensor, stride)[0]
-
-    passing, pcc = assert_with_pcc(ttnn_model_output, torch_model_output, 0.99)
-    logger.info(f"Passing: {passing}, PCC: {pcc}")
-
-
-@pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize("input_tensor", [torch.rand((1, 3, 320, 320))], ids=["input_tensor1"])
 def test_yolov8m(device, input_tensor):
     disable_persistent_kernel_cache()
@@ -388,7 +368,7 @@ def test_yolov8m(device, input_tensor):
 
     state_dict = torch_model.state_dict()
 
-    parameters = custom_preprocessor(device, state_dict)
+    parameters = custom_preprocessor(device, state_dict, inp_h=input_tensor.shape[2], inp_w=input_tensor.shape[3])
 
     ttnn_input = input_tensor.permute((0, 2, 3, 1))
 

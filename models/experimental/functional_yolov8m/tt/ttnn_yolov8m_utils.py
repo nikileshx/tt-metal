@@ -32,7 +32,8 @@ def autopad(k, p=None, d=1):
 
 
 def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True, dim=1):
-    lt, rb = ttnn.split(distance, 2, 1)
+    distance = ttnn.to_layout(distance, ttnn.ROW_MAJOR_LAYOUT)
+    lt, rb = ttnn.split(distance, 2, 1)  # if done in tile : tt-metal issue #17017
     lt = ttnn.to_layout(lt, ttnn.TILE_LAYOUT)
     rb = ttnn.to_layout(rb, ttnn.TILE_LAYOUT)
 
@@ -45,60 +46,24 @@ def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True, dim=1):
         return ttnn.concat([c_xy, wh], 1)
 
 
-def ttnn_make_anchors(device, feats, strides, grid_cell_offset=0.5):
+def make_anchors(device, feats, strides, grid_cell_offset=0.5):
     anchor_points, stride_tensor = [], []
     assert feats is not None
-    strides = [8, 16, 32]
-
-    feats = [(40, 40), (20, 20), (10, 10)]
     for i, stride in enumerate(strides):
         h, w = feats[i]
+        sx = torch.arange(end=w) + grid_cell_offset
+        sy = torch.arange(end=h) + grid_cell_offset
+        sy, sx = torch.meshgrid(sy, sx)
+        anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
+        stride_tensor.append(torch.full((h * w, 1), stride))
 
-        sx = ttnn.arange(start=0, end=w, dtype=ttnn.bfloat16, device=device)
-        sy = ttnn.arange(start=0, end=h, dtype=ttnn.bfloat16, device=device)
+    a = torch.cat(anchor_points).transpose(0, 1).unsqueeze(0)
+    b = torch.cat(stride_tensor).transpose(0, 1)
 
-        sx = ttnn.to_layout(sx, ttnn.TILE_LAYOUT)
-        sy = ttnn.to_layout(sy, ttnn.TILE_LAYOUT)
-
-        sy = sy + grid_cell_offset
-        sx = sx + grid_cell_offset
-
-        sx = ttnn.reshape(sx, (1, 1, h, 1))
-        sx = ttnn.repeat(sx, ttnn.Shape((1, w, 1, 1)))
-
-        sy = ttnn.reshape(sy, (w, 1, 1, 1))
-        sy = ttnn.repeat(sy, ttnn.Shape((1, h, 1, 1)))
-
-        sx = ttnn.reshape(sx, (w, h))
-        sy = ttnn.reshape(sy, (h, w))
-
-        sx = ttnn.sharded_to_interleaved(sx, ttnn.L1_MEMORY_CONFIG)
-        sx = ttnn.to_layout(sx, ttnn.ROW_MAJOR_LAYOUT)
-        sx = ttnn.reshape(sx, (sx.shape[0], sx.shape[1], -1))
-
-        sy = ttnn.sharded_to_interleaved(sy, ttnn.L1_MEMORY_CONFIG)
-        sy = ttnn.to_layout(sy, ttnn.ROW_MAJOR_LAYOUT)
-        sy = ttnn.reshape(sy, (sx.shape[0], sx.shape[1], -1))
-
-        temp = ttnn.concat([sx, sy], dim=-1)
-        temp = ttnn.reshape(temp, (-1, 2))
-
-        temp = ttnn.sharded_to_interleaved(temp, ttnn.L1_MEMORY_CONFIG)
-        temp = ttnn.to_layout(temp, ttnn.TILE_LAYOUT)
-        temp = ttnn.to_device(temp, device)
-        anchor_points.append(temp)
-
-        temp = ttnn.full(shape=[h * w, 1], fill_value=stride, dtype=ttnn.bfloat16)
-
-        temp = ttnn.sharded_to_interleaved(temp, ttnn.L1_MEMORY_CONFIG)
-        temp = ttnn.to_layout(temp, ttnn.TILE_LAYOUT)
-        temp = ttnn.to_device(temp, device)
-        stride_tensor.append(temp)
-
-    a = ttnn.concat(anchor_points, dim=0)
-    b = ttnn.concat(stride_tensor, dim=0)
-
-    return (a, b)
+    return (
+        ttnn.from_torch(a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+        ttnn.from_torch(b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+    )
 
 
 def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
@@ -126,7 +91,7 @@ def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
         return (conv_weight, None)
 
 
-def custom_preprocessor(device, state_dict):
+def custom_preprocessor(device, state_dict, inp_h=320, inp_w=320):
     pairs = [
         ("model.0", True),
         ("model.1", True),
@@ -226,5 +191,14 @@ def custom_preprocessor(device, state_dict):
     # DFL conv
 
     parameters["model.22.dfl"] = preprocess_parameters(state_dict, "model.22.dfl", bias=False)
+
+    strides = [8, 16, 32]
+
+    feats = [(inp_h // 8, inp_w // 8), (inp_h // 16, inp_w // 16), (inp_h // 32, inp_w // 32)]  # value depend on res
+
+    anchors, strides = make_anchors(device, feats, strides)  # Optimization: Processing make anchors outside model run
+
+    parameters["anchors"] = anchors
+    parameters["strides"] = strides
 
     return parameters
