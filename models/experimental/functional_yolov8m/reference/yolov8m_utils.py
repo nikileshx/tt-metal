@@ -2,7 +2,7 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
-# This file fixes ultralytics dependency for loading yolov8x model weights at ckpt = torch.load(w, map_location=map_location) as pip install ultralytics causes error in tt device.
+# This file fixes ultralytics dependency for loading yolov8m model weights at ckpt = torch.load(w, map_location=map_location) as pip install ultralytics causes error in tt device.
 
 import math
 import torch
@@ -209,5 +209,5 @@ class Detect(nn.Module):
 
 
 class DetectionModel(BaseModel):
-    def __init__(self, cfg="yolov8x.yaml", ch=3, nc=None, verbose=True):
+    def __init__(self, cfg="yolov8m.yaml", ch=3, nc=None, verbose=True):
         super().__init__()
