@@ -93,14 +93,13 @@ class Yolov8TestInfra:
         self.model_location_generator = model_location_generator
         torch_model = load_torch_model()
         self.ttnn_yolov8_model = load_ttnn_model(device=self.device, torch_model=torch_model)
-        input_shape = (1, 640, 640, 3)
+        input_shape = (1, 320, 320, 3)
         torch_input_tensor = torch.randn(input_shape, dtype=torch.float32)
         self.tt_input_tensor = ttnn.from_torch(torch_input_tensor, ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
         self.torch_input_tensor = torch_input_tensor.permute(0, 3, 1, 2)
         self.torch_output_tensor = torch_model(self.torch_input_tensor)
 
     def run(self):
-        # input_tensor = ttnn.to_device(self.input_tensor, device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
         self.output_tensor = self.ttnn_yolov8_model(device=self.device, x=self.input_tensor)
 
     def setup_l1_sharded_input(self, device, torch_input_tensor=None):

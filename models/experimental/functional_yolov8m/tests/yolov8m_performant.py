@@ -5,7 +5,7 @@
 
 import ttnn
 import pytest
-from models.experimental.functional_yolov8x.tests.yolov8x_test_infra import create_test_infra
+from models.experimental.functional_yolov8m.tests.yolov8m_test_infra import create_test_infra
 
 try:
     from tracy import signpost
@@ -27,7 +27,7 @@ def buffer_address(tensor):
 ttnn.buffer_address = buffer_address
 
 
-def run_yolov8x_inference(
+def run_yolov8m_inference(
     device,
     device_batch_size,
     act_dtype,
@@ -66,7 +66,7 @@ def run_yolov8x_inference(
     test_infra.dealloc_output()
 
 
-def run_yolov8x_trace_inference(
+def run_yolov8m_trace_inference(
     device,
     device_batch_size,
     act_dtype,
@@ -116,7 +116,7 @@ def run_yolov8x_trace_inference(
     test_infra.dealloc_output()
 
 
-def run_yolov8x_trace_2cqs_inference(
+def run_yolov8m_trace_2cqs_inference(
     device,
     device_batch_size,
     act_dtype,
@@ -196,13 +196,13 @@ def run_yolov8x_trace_2cqs_inference(
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768, "trace_region_size": 800768}], indirect=True)
 @pytest.mark.parametrize("device_batch_size, act_dtype, weight_dtype", [(1, ttnn.bfloat16, ttnn.bfloat8_b)])
-def test_run_yolov8x_trace_inference(
+def test_run_yolov8m_trace_inference(
     device,
     device_batch_size,
     act_dtype,
     weight_dtype,
 ):
-    run_yolov8x_trace_inference(
+    run_yolov8m_trace_inference(
         device,
         device_batch_size,
         act_dtype,
@@ -218,14 +218,14 @@ def test_run_yolov8x_trace_inference(
     ((1, ttnn.bfloat16, ttnn.bfloat16),),
 )
 @pytest.mark.parametrize("enable_async_mode", (False, True), indirect=True)
-def test_run_yolov8x_trace_2cqs_inference(
+def test_run_yolov8m_trace_2cqs_inference(
     device,
     device_batch_size,
     act_dtype,
     weight_dtype,
     enable_async_mode,
 ):
-    run_yolov8x_trace_2cqs_inference(
+    run_yolov8m_trace_2cqs_inference(
         device=device,
         device_batch_size=device_batch_size,
         act_dtype=act_dtype,
@@ -235,13 +235,13 @@ def test_run_yolov8x_trace_2cqs_inference(
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize("device_batch_size, act_dtype, weight_dtype", [(1, ttnn.bfloat16, ttnn.bfloat8_b)])
-def test_run_yolov8x_inference(
+def test_run_yolov8m_inference(
     device,
     device_batch_size,
     act_dtype,
     weight_dtype,
 ):
-    run_yolov8x_inference(
+    run_yolov8m_inference(
         device,
         device_batch_size,
         act_dtype,
