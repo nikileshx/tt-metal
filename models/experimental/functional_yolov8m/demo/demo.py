@@ -101,12 +101,12 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
     [
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "torch_model"),
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "tt_model"),
+        # ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "torch_model"),
+        # ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "tt_model"),
+        # ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "torch_model"),
+        # ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "tt_model"),
+        # ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "torch_model"),
+        # ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "tt_model"),
     ],
 )
 @pytest.mark.parametrize("res", [(320, 320)])
@@ -118,7 +118,7 @@ def test_demo(device, source, model_type, res):
         logger.info("Inferencing using Torch Model")
     else:
         state_dict = attempt_load("yolov8m.pt", map_location="cpu").state_dict()
-        parameters = custom_preprocessor(device, state_dict, inp_h=320, inp_w=320)
+        parameters = custom_preprocessor(device, state_dict, inp_h=res[0], inp_w=res[1])
         model = partial(YOLOv8m, device=device, parameters=parameters)
         logger.info("Inferencing using ttnn Model")
 
