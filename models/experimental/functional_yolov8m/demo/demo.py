@@ -101,12 +101,10 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
     [
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "torch_model"),
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "tt_model"),
-        # ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "torch_model"),
-        # ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "tt_model"),
-        # ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "torch_model"),
-        # ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "tt_model"),
-        # ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "torch_model"),
-        # ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "tt_model"),
     ],
 )
 @pytest.mark.parametrize("res", [(320, 320)])
