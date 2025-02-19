@@ -346,7 +346,7 @@ def test_Detect_cv3(device, input_tensor, c1, c2, k, reg_max, idx):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [([torch.rand((1, 320, 80, 80)), torch.rand((1, 640, 40, 40)), torch.rand((1, 640, 20, 20))])],
+    [([torch.rand((1, 192, 40, 40)), torch.rand((1, 384, 20, 20)), torch.rand((1, 576, 10, 10))])],
     ids=["input_tensor1"],
 )
 def test_last_detect(device, input_tensor):
@@ -367,7 +367,7 @@ def test_last_detect(device, input_tensor):
     parameters = custom_preprocessor(device, state_dict)
 
     with torch.inference_mode():
-        ttnn_model_output = Detect(device, ttnn_input, parameters, "model.22", nc=80, ch=(320, 640, 640))[0]
+        ttnn_model_output = Detect(device, ttnn_input, parameters, "model.22", nc=80, ch=(192, 384, 576))[0]
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
 
     submodule = torch_model.get_submodule(f"model.22")
@@ -408,13 +408,17 @@ def test_DFL(device, input_tensor):
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
-    "distance, anchors", [(torch.rand((1, 4, 8400)), torch.rand((1, 2, 8400)))], ids=["input_tensor"]
+    "distance, anchors", [(torch.rand((1, 4, 2100)), torch.rand((1, 2, 2100)))], ids=["input_tensor"]
 )
 def test_dist2bbox(device, distance, anchors):
     disable_persistent_kernel_cache()
 
-    ttnn_distance = ttnn.from_torch(distance, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
-    ttnn_anchors = ttnn.from_torch(anchors, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+    ttnn_distance = ttnn.from_torch(
+        distance, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
+    ttnn_anchors = ttnn.from_torch(
+        anchors, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
 
     ttnn_model_output = ttnn_decode_bboxes(device, ttnn_distance, ttnn_anchors)
     ttnn_model_output = ttnn.to_torch(ttnn_model_output)
