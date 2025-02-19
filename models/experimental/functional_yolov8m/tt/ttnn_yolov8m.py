@@ -348,6 +348,7 @@ def DFL(device, x, parameters, path, c1=16):
         is_fused=False,
         is_dfl=True,
         change_shard=True,
+        memory_config=ttnn.L1_MEMORY_CONFIG,
     )
 
     return x
@@ -417,7 +418,7 @@ def DetectionModel(device, x, parameters, res):
 
     x, out_h, out_w = conv(device, x, parameters, "model.3", out_h, out_w, 3, 2)
 
-    x, out_h, out_w = c2f(device, x, parameters, "model.4", out_h, out_w, n=4, shortcut=True, change_shard=False)
+    x, out_h, out_w = c2f(device, x, parameters, "model.4", out_h, out_w, n=4, shortcut=True)
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
     four = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)

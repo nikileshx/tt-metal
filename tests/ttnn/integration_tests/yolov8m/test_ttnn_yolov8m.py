@@ -408,13 +408,17 @@ def test_DFL(device, input_tensor):
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
-    "distance, anchors", [(torch.rand((1, 4, 8400)), torch.rand((1, 2, 8400)))], ids=["input_tensor"]
+    "distance, anchors", [(torch.rand((1, 4, 2100)), torch.rand((1, 2, 2100)))], ids=["input_tensor"]
 )
 def test_dist2bbox(device, distance, anchors):
     disable_persistent_kernel_cache()
 
-    ttnn_distance = ttnn.from_torch(distance, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
-    ttnn_anchors = ttnn.from_torch(anchors, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
+    ttnn_distance = ttnn.from_torch(
+        distance, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
+    ttnn_anchors = ttnn.from_torch(
+        anchors, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+    )
 
     ttnn_model_output = ttnn_decode_bboxes(device, ttnn_distance, ttnn_anchors)
     ttnn_model_output = ttnn.to_torch(ttnn_model_output)
