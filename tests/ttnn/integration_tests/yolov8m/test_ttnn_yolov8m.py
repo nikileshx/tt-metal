@@ -103,7 +103,7 @@ def run_submodule(x, submodule):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((1, 3, 320, 320)))],
+    [(torch.rand((4, 3, 320, 320)))],
     ids=[
         "input_tensor1",
     ],
@@ -135,7 +135,7 @@ def test_demo(device, input_tensor):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 3, 640, 640)))], ids=["input_tensor1"])
+@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 3, 320, 320)))], ids=["input_tensor1"])
 def test_Conv(device, input_tensor):
     disable_persistent_kernel_cache()
 
@@ -177,12 +177,14 @@ def test_Conv(device, input_tensor):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 160, 160, 160)))], ids=["input_tensor1"])
+@pytest.mark.parametrize("input_tensor", [(torch.rand((2, 96, 80, 80)))], ids=["input_tensor1"])
 def test_C2f(device, input_tensor):
     disable_persistent_kernel_cache()
 
     torch_model = attempt_load("yolov8m.pt", map_location="cpu")
     torch_model.eval()
+
+    bs = input_tensor.shape[0]
 
     ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
     ttnn_input = ttnn.permute(ttnn_input, (0, 2, 3, 1))
@@ -201,12 +203,13 @@ def test_C2f(device, input_tensor):
             "model.2",
             ttnn_input.shape[1],
             ttnn_input.shape[2],
-            n=3,
+            n=2,
             shortcut=True,
-            change_shard=True,
+            act_block_h=True,
+            batch_size=bs,
         )
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
-        ttnn_model_output = ttnn_model_output.reshape((1, out_h, out_w, ttnn_model_output.shape[-1]))
+        ttnn_model_output = ttnn_model_output.reshape((bs, out_h, out_w, ttnn_model_output.shape[-1]))
         ttnn_model_output = ttnn_model_output.permute((0, 3, 1, 2))
 
     submodule = torch_model.get_submodule("model.2")
@@ -219,12 +222,14 @@ def test_C2f(device, input_tensor):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 640, 20, 20)))], ids=["input_tensor1"])
+@pytest.mark.parametrize("input_tensor", [(torch.rand((2, 576, 20, 20)))], ids=["input_tensor1"])
 def test_SPPF(device, input_tensor):
     disable_persistent_kernel_cache()
 
     torch_model = attempt_load("yolov8m.pt", map_location="cpu")
     torch_model.eval()
+
+    bs = input_tensor.shape[0]
 
     ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
     ttnn_input = ttnn.permute(ttnn_input, (0, 2, 3, 1))
@@ -237,10 +242,10 @@ def test_SPPF(device, input_tensor):
 
     with torch.inference_mode():
         ttnn_model_output, out_h, out_w = SPPF(
-            device, ttnn_input, parameters, "model.9", ttnn_input.shape[1], ttnn_input.shape[2]
+            device, ttnn_input, parameters, "model.9", ttnn_input.shape[1], ttnn_input.shape[2], batch_size=bs
         )
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
-        ttnn_model_output = ttnn_model_output.reshape((1, out_h, out_w, ttnn_model_output.shape[-1]))
+        ttnn_model_output = ttnn_model_output.reshape((bs, out_h, out_w, ttnn_model_output.shape[-1]))
         ttnn_model_output = ttnn_model_output.permute((0, 3, 1, 2))
 
     submodule = torch_model.get_submodule("model.9")
@@ -256,9 +261,9 @@ def test_SPPF(device, input_tensor):
 @pytest.mark.parametrize(
     "input_tensor, c1, c2, k, reg_max, idx",
     [
-        (torch.rand((1, 320, 80, 80)), 320, 80, 3, 64, 0),
-        (torch.rand((1, 640, 40, 40)), 640, 80, 3, 64, 1),
-        (torch.rand((1, 640, 20, 20)), 640, 80, 3, 64, 2),
+        (torch.rand((1, 192, 80, 80)), 192, 64, 3, 64, 0),
+        (torch.rand((1, 384, 40, 40)), 384, 64, 3, 64, 1),
+        (torch.rand((1, 576, 20, 20)), 576, 64, 3, 64, 2),
     ],
     ids=["input_tensor1", "input_tensor2", "input_tensor3"],
 )
@@ -298,9 +303,9 @@ def test_Detect_cv2(device, input_tensor, c1, c2, k, reg_max, idx):
 @pytest.mark.parametrize(
     "input_tensor, c1, c2, k, reg_max, idx",
     [
-        (torch.rand((1, 320, 80, 80)), 320, 320, 3, 80, 0),
-        (torch.rand((1, 640, 40, 40)), 640, 320, 3, 80, 1),
-        (torch.rand((1, 640, 20, 20)), 640, 320, 3, 80, 2),
+        (torch.rand((1, 192, 80, 80)), 192, 192, 3, 80, 0),
+        (torch.rand((1, 384, 40, 40)), 384, 192, 3, 80, 1),
+        (torch.rand((1, 576, 20, 20)), 576, 192, 3, 80, 2),
     ],
     ids=["input_tensor1", "input_tensor2", "input_tensor3"],
 )
@@ -346,20 +351,22 @@ def test_Detect_cv3(device, input_tensor, c1, c2, k, reg_max, idx):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [([torch.rand((1, 192, 40, 40)), torch.rand((1, 384, 20, 20)), torch.rand((1, 576, 10, 10))])],
+    [([torch.rand((2, 192, 40, 40)), torch.rand((2, 384, 20, 20)), torch.rand((2, 576, 10, 10))])],
     ids=["input_tensor1"],
 )
 def test_last_detect(device, input_tensor):
     disable_persistent_kernel_cache()
 
-    torch_model = attempt_load("yolovm.pt", map_location="cpu")
+    torch_model = attempt_load("yolov8m.pt", map_location="cpu")
     torch_model.eval()
+
+    bs = input_tensor[0].shape[0]
 
     ttnn_input = []
     for i in range(len(input_tensor)):
         x = ttnn.from_torch(input_tensor[i], dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
         x = ttnn.permute(x, (0, 2, 3, 1))
-        x = ttnn.reshape(x, (1, 1, x.shape[1] * x.shape[2], x.shape[-1]))
+        x = ttnn.reshape(x, (1, 1, bs * x.shape[1] * x.shape[2], x.shape[-1]))
         ttnn_input.append(x)
 
     state_dict = torch_model.state_dict()
@@ -367,7 +374,9 @@ def test_last_detect(device, input_tensor):
     parameters = custom_preprocessor(device, state_dict)
 
     with torch.inference_mode():
-        ttnn_model_output = Detect(device, ttnn_input, parameters, "model.22", nc=80, ch=(192, 384, 576))[0]
+        ttnn_model_output = Detect(
+            device, ttnn_input, parameters, "model.22", nc=80, ch=(192, 384, 576), batch_size=bs
+        )[0]
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
 
     submodule = torch_model.get_submodule(f"model.22")
