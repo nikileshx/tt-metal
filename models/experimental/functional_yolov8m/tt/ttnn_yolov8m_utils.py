@@ -46,23 +46,29 @@ def make_anchors(device, feats, strides, grid_cell_offset=0.5):
     b = torch.cat(stride_tensor).transpose(0, 1)
 
     return (
-        ttnn.from_torch(a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
-        ttnn.from_torch(b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+        ttnn.from_torch(
+            a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+        ),
+        ttnn.from_torch(
+            b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+        ),
     )
+    # try moving to L1 later
 
 
-def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True, dim=1):
+def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
     distance = ttnn.to_layout(distance, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     lt, rb = ttnn.split(distance, 2, 1, memory_config=ttnn.L1_MEMORY_CONFIG)  # if done in tile : tt-metal issue #17017
     lt = ttnn.to_layout(lt, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     rb = ttnn.to_layout(rb, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x1y1 = anchor_points - lt
-    x2y2 = anchor_points + rb
+    x1y1 = ttnn.subtract(anchor_points, lt, memory_config=ttnn.L1_MEMORY_CONFIG)
+    x2y2 = ttnn.add(anchor_points, rb, memory_config=ttnn.L1_MEMORY_CONFIG)
+
     if xywh:
-        c_xy = x1y1 + x2y2
+        c_xy = ttnn.add(x1y1, x2y2, memory_config=ttnn.L1_MEMORY_CONFIG)
         c_xy = ttnn.div(c_xy, 2, memory_config=ttnn.L1_MEMORY_CONFIG)
-        wh = x2y2 - x1y1
+        wh = ttnn.subtract(x2y2, x1y1, memory_config=ttnn.L1_MEMORY_CONFIG)
         return ttnn.concat([c_xy, wh], 1, memory_config=ttnn.L1_MEMORY_CONFIG)
 
 
