@@ -186,9 +186,9 @@ def c2f(
     act_block_h=False,
     bfloat8=True,
     block_shard=False,
+    width_shard=False,
     change_shard=None,
-    deallocate_activation=False,
-    output_layout=ttnn.ROW_MAJOR_LAYOUT,
+    use_interleaved=False,
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -201,9 +201,11 @@ def c2f(
         1,
         bfloat8=bfloat8,
         change_shard=change_shard,
-        deallocate_activation=deallocate_activation,
-        output_layout=output_layout,
+        width_shard=width_shard,
     )
+
+    if use_interleaved:
+        cv1 = ttnn.sharded_to_interleaved(cv1, ttnn.L1_MEMORY_CONFIG)
 
     cv1 = ttnn.to_layout(cv1, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     y = list(ttnn.split(cv1, 2, 3, memory_config=ttnn.L1_MEMORY_CONFIG))
@@ -225,7 +227,6 @@ def c2f(
             e=1.0,
             act_block_h=act_block_h,
             change_shard=change_shard,
-            deallocate_activation=deallocate_activation,
             tilize=to_tile,
         )
         y.append(z)
@@ -253,8 +254,7 @@ def c2f(
         1,
         bfloat8=bfloat8,
         block_shard=block_shard,
-        change_shard=True,
-        deallocate_activation=deallocate_activation,
+        change_shard=change_shard,
     )
     return x, out_h, out_w
 
@@ -426,9 +426,10 @@ def DetectionModel(device, x, parameters, res):
     )
 
     x, out_h, out_w = c2f(
-        device, x, parameters, "model.6", out_h, out_w, n=4, shortcut=True, block_shard=False, change_shard=False
+        device, x, parameters, "model.6", out_h, out_w, n=4, shortcut=True, block_shard=True, change_shard=False
     )
 
+    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
     six = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x, out_h, out_w = conv(
@@ -441,13 +442,13 @@ def DetectionModel(device, x, parameters, res):
         3,
         2,
         1,
-        block_shard=False,
-        change_shard=True,
+        block_shard=True,
+        change_shard=False,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-
-    x, out_h, out_w = c2f(device, x, parameters, "model.8", out_h, out_w, n=2, shortcut=True, change_shard=True)
+    x, out_h, out_w = c2f(
+        device, x, parameters, "model.8", out_h, out_w, n=2, shortcut=True, change_shard=True, use_interleaved=True
+    )
 
     x, out_h, out_w = SPPF(device, x, parameters, "model.9", out_h, out_w)
 
