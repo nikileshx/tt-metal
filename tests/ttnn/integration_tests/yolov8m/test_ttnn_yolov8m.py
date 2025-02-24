@@ -103,7 +103,7 @@ def run_submodule(x, submodule):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((4, 3, 320, 320)))],
+    [(torch.rand((1, 3, 320, 320)))],
     ids=[
         "input_tensor1",
     ],
@@ -115,16 +115,35 @@ def test_demo(device, input_tensor):
 
     state_dict = torch_model.state_dict()
 
-    inp_h, inp_w = input_tensor.shape[2], input_tensor.shape[3]
+    bs, inp_h, inp_w = input_tensor.shape[0], input_tensor.shape[2], input_tensor.shape[3]
 
     parameters = custom_preprocessor(device, state_dict, inp_h=inp_h, inp_w=inp_w)
 
-    ttnn_input = input_tensor.permute((0, 2, 3, 1))
+    core_grid = ttnn.CoreGrid(y=8, x=8)
+    n, c, h, w = input_tensor.shape
 
-    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    # sharded mem config for fold input
+    num_cores = core_grid.x * core_grid.y
+    shard_h = (n * w * h + num_cores - 1) // num_cores
+    grid_size = core_grid
+    grid_coord = ttnn.CoreCoord(grid_size.x - 1, grid_size.y - 1)
+    shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), grid_coord)})
+    shard_spec = ttnn.ShardSpec(shard_grid, (shard_h, 16), ttnn.ShardOrientation.ROW_MAJOR)
+    input_mem_config = ttnn.MemoryConfig(
+        ttnn.types.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.types.BufferType.L1, shard_spec
+    )
+    ttnn_input = input_tensor.permute(0, 2, 3, 1)
+    ttnn_input = ttnn_input.reshape(1, 1, h * w * n, c)
+    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+    ttnn_input = ttnn.pad(ttnn_input, [1, 1, n * h * w, 16], [0, 0, 0, 0], 0)
+
+    ttnn_input = ttnn_input.to(device, input_mem_config)
+
+    # ttnn_input = input_tensor.permute((0, 2, 3, 1))
+    # ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     with torch.inference_mode():
-        ttnn_model_output = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w))[0]
+        ttnn_model_output = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w), batch_size=bs)[0]
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
 
     with torch.inference_mode():
@@ -423,7 +442,7 @@ def test_dist2bbox(device, distance, anchors):
     disable_persistent_kernel_cache()
 
     ttnn_distance = ttnn.from_torch(
-        distance, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
+        distance, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
     )
     ttnn_anchors = ttnn.from_torch(
         anchors, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
