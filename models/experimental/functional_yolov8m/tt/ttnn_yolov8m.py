@@ -134,6 +134,7 @@ def Bottleneck(
     output_layout=ttnn.TILE_LAYOUT,
     tilize=False,
     batch_size=1,
+    temp="",
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -150,6 +151,9 @@ def Bottleneck(
         output_layout=output_layout,
         batch_size=batch_size,
     )
+
+    if temp == "c2f8":
+        cv1 = ttnn.from_device(cv1)
 
     cv2, out_h, out_w = conv(
         device,
@@ -194,6 +198,7 @@ def c2f(
     change_shard=None,
     use_interleaved=False,
     batch_size=1,
+    temp="",
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -235,6 +240,7 @@ def c2f(
             change_shard=change_shard,
             tilize=to_tile,
             batch_size=batch_size,
+            temp=temp,
         )
         y.append(z)
         to_tile = False
@@ -246,7 +252,10 @@ def c2f(
         for i in range(2, len(y)):
             y[i] = ttnn.sharded_to_interleaved(y[i], ttnn.L1_MEMORY_CONFIG)
 
-    x = ttnn.concat(y, 3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    if batch_size > 6:
+        x = ttnn.concat(y, 3)
+    else:
+        x = ttnn.concat(y, 3, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     for i in range(len(y)):
         ttnn.deallocate(y[i])
@@ -444,6 +453,9 @@ def DetectionModel(device, x, parameters, res):
         device, x, parameters, "model.0", res[0], res[1], 3, 2, 1, act_block_h=True, batch_size=batch_size
     )
 
+    if batch_size > 6:
+        x = ttnn.from_device(x)
+
     x, out_h, out_w = conv(
         device, x, parameters, "model.1", out_h, out_w, 3, 2, 1, act_block_h=True, batch_size=batch_size
     )
@@ -518,6 +530,7 @@ def DetectionModel(device, x, parameters, res):
         change_shard=True,
         use_interleaved=True,
         batch_size=batch_size,
+        temp="c2f8" if batch_size > 6 else "",
     )
 
     x, out_h, out_w = SPPF(device, x, parameters, "model.9", out_h, out_w, batch_size=batch_size)
