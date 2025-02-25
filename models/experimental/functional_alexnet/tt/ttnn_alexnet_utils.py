@@ -17,7 +17,7 @@ def preprocess_linear_parameter(device, path, state_dict, dtype=ttnn.float32, la
     return (weight, bias)
 
 
-def preprocess_conv_parameter(device, path, state_dict, dtype=ttnn.float32):
+def preprocess_conv_parameter(mesh_device, path, state_dict, dtype=ttnn.float32):
     conv_weight = state_dict[f"{path}.weight"]
     conv_bias = state_dict[f"{path}.bias"]
 
@@ -27,7 +27,7 @@ def preprocess_conv_parameter(device, path, state_dict, dtype=ttnn.float32):
     return (conv_weight, conv_bias)
 
 
-def custom_preprocessor(device, state_dict, dtype=ttnn.bfloat16):
+def custom_preprocessor(mesh_device, state_dict, dtype=ttnn.bfloat16):
     pairs = [
         ("features.0", "conv"),
         ("features.3", "conv"),
@@ -43,8 +43,8 @@ def custom_preprocessor(device, state_dict, dtype=ttnn.bfloat16):
 
     for path, layer in pairs:
         if layer == "conv":
-            parameters[path] = preprocess_conv_parameter(device, path, state_dict, dtype=dtype)
+            parameters[path] = preprocess_conv_parameter(mesh_device, path, state_dict, dtype=dtype)
         else:
-            parameters[path] = preprocess_linear_parameter(device, path, state_dict, dtype=dtype)
+            parameters[path] = preprocess_linear_parameter(mesh_device, path, state_dict, dtype=dtype)
 
     return parameters

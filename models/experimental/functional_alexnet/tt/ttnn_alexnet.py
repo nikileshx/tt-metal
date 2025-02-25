@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ttnn
+import torch.nn as nn
 
 
 class Conv:
@@ -44,7 +45,7 @@ class Conv:
             weights_dtype=ttnn.bfloat16,
             activation="relu",
             shard_layout=ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
-            input_channels_alignment=16 if c1 < 16 else 32,
+            input_channels_alignment=32,
             reshard_if_not_optimal=self.reshard,
             deallocate_activation=True,
             reallocate_halo_output=False,
@@ -63,9 +64,9 @@ class Conv:
         if self.change_shard:
             self.conv_config.shard_layout = None
 
-        self.input_memory_config = (
-            ttnn.L1_HEIGHT_SHARDED_MEMORY_CONFIG if True and not width_shard else ttnn.L1_BLOCK_SHARDED_MEMORY_CONFIG
-        )
+        # self.input_memory_config = (
+        #     ttnn.L1_HEIGHT_SHARDED_MEMORY_CONFIG if True and not width_shard else ttnn.L1_BLOCK_SHARDED_MEMORY_CONFIG
+        # )
 
         self.conv_kwargs = {
             "in_channels": c1,
@@ -82,24 +83,24 @@ class Conv:
             "conv_config": self.conv_config,
         }
 
-        if not ttnn.is_tensor_storage_on_device(self.conv_weight):
-            conv_weight = ttnn.prepare_conv_weights(
-                weight_tensor=self.conv_weight,
-                weights_format="OIHW",
-                input_memory_config=self.input_memory_config,
-                input_layout=ttnn.TILE_LAYOUT,
-                has_bias=True,
-                **self.conv_kwargs,
-            )
+        # if not ttnn.is_tensor_storage_on_device(self.conv_weight):
+        #     conv_weight = ttnn.prepare_conv_weights(
+        #         weight_tensor=self.conv_weight,
+        #         weights_format="OIHW",
+        #         input_memory_config=self.input_memory_config,
+        #         input_layout=ttnn.TILE_LAYOUT,
+        #         has_bias=True,
+        #         **self.conv_kwargs,
+        #     )
 
-            conv_bias = ttnn.prepare_conv_bias(
-                bias_tensor=self.conv_bias,
-                input_memory_config=self.input_memory_config,
-                input_layout=ttnn.TILE_LAYOUT,
-                **self.conv_kwargs,
-            )
-            self.conv_weight = ttnn.to_device(conv_weight, device)
-            self.conv_bias = ttnn.to_device(conv_bias, device)
+        #     conv_bias = ttnn.prepare_conv_bias(
+        #         bias_tensor=self.conv_bias,
+        #         input_memory_config=self.input_memory_config,
+        #         input_layout=ttnn.TILE_LAYOUT,
+        #         **self.conv_kwargs,
+        #     )
+        #     self.conv_weight = ttnn.to_device(conv_weight, device)
+        #     self.conv_bias = ttnn.to_device(conv_bias, device)
 
     def __str__(self) -> str:
         return f"Conv: {self.conv_weight.shape} {self.conv_bias.shape} {self.kernel_size}"
@@ -145,9 +146,9 @@ class Linear:
 
         self.linear_weight, self.linear_bias = parameters[path]
 
-        if not ttnn.is_tensor_storage_on_device(self.linear_weight):
-            self.linear_weight = ttnn.to_device(self.linear_weight, device)
-            self.linear_bias = ttnn.to_device(self.linear_bias, device)
+        # if not ttnn.is_tensor_storage_on_device(self.linear_weight):
+        #     self.linear_weight = ttnn.to_device(self.linear_weight, device)
+        #     self.linear_bias = ttnn.to_device(self.linear_bias, device)
 
     def __call__(self, x):
         x = ttnn.linear(
@@ -162,10 +163,12 @@ class Linear:
 
 
 class TT_Alexnet:
-    def __init__(self, device, input_shape, parameters):
+    def __init__(self, device, input_shape, parameters, inputs_mesh_mapper, output_mesh_composer):
         self.batch_size = input_shape[0]
         self.parameters = parameters
         self.device = device
+        self.inputs_mesh_mapper = inputs_mesh_mapper
+        self.output_mesh_composer = output_mesh_composer
         self.conv1 = Conv(
             device,
             self.parameters,
@@ -178,6 +181,7 @@ class TT_Alexnet:
             batch_size=self.batch_size,
             c1=3,
             c2=64,
+            change_shard=True,
         )
 
         self.conv2 = Conv(
@@ -301,13 +305,34 @@ class TT_Alexnet:
         )
 
         x = ttnn.reshape(x, (self.batch_size, 6, 6, 256), memory_config=ttnn.L1_MEMORY_CONFIG)
+        x = ttnn.to_memory_config(x, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-        x = ttnn.adaptive_avg_pool2d(x, ttnn.Shape([6, 6]), memory_config=ttnn.L1_MEMORY_CONFIG)
+        # torch op as ttnn does not support avgpool for (6,6).
 
-        x = ttnn.permute(x, (0, 3, 1, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+        avg_pool = nn.AdaptiveAvgPool2d(output_size=(6, 6))
+        tt_output_tensor = ttnn.permute(x, (0, 3, 1, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+        torch_output_tensor = ttnn.to_torch(tt_output_tensor, mesh_composer=self.output_mesh_composer)
+        x = avg_pool(torch_output_tensor)
+        x = ttnn.from_torch(
+            x,
+            dtype=ttnn.bfloat16,
+            layout=ttnn.ROW_MAJOR_LAYOUT,
+            device=self.device,
+            memory_config=ttnn.L1_MEMORY_CONFIG,
+            mesh_mapper=self.inputs_mesh_mapper,
+        )
 
-        x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        # comment above and uncomment below to use nikileshx composite implementation of AAP2 and build using the branch
+
+        # x = ttnn.adaptive_avg_pool2d(x, ttnn.Shape([6, 6]), memory_config=ttnn.L1_MEMORY_CONFIG)
+        # x = ttnn.permute(x, (0, 3, 1, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+        # x = ttnn.reshape(x, (self.batch_size, -1), memory_config=ttnn.L1_MEMORY_CONFIG)
+        # x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
         x = ttnn.reshape(x, (self.batch_size, -1), memory_config=ttnn.L1_MEMORY_CONFIG)
+        x = ttnn.from_device(x)
+        x = ttnn.to_device(x, device=self.device, memory_config=ttnn.L1_MEMORY_CONFIG)
+        x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
         x = self.linear1(x)
         x = ttnn.relu(x)

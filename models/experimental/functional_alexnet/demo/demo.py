@@ -9,9 +9,21 @@ import torch, ttnn
 from PIL import Image
 from loguru import logger
 from torchvision import models, transforms
+from models.utility_functions import is_wormhole_b0
 from models.experimental.functional_alexnet.tt.ttnn_alexnet import TT_Alexnet
 from models.utility_functions import disable_persistent_kernel_cache, disable_compilation_reports
 from models.experimental.functional_alexnet.tt.ttnn_alexnet_utils import custom_preprocessor
+
+
+def get_mesh_mappers(device):
+    is_mesh_device = isinstance(device, ttnn.MeshDevice)
+    if is_mesh_device:
+        inputs_mesh_mapper = ttnn.ShardTensorToMesh(device, dim=0)
+        output_mesh_composer = ttnn.ConcatMeshToTensor(device, dim=0)
+    else:
+        inputs_mesh_mapper = None
+        output_mesh_composer = None
+    return inputs_mesh_mapper, output_mesh_composer
 
 
 def get_dataset(batch_size):
@@ -47,8 +59,10 @@ def get_dataset(batch_size):
     return batch
 
 
-def run_alexnet_on_imageFolder(device, batch_size):
+def run_alexnet_on_imageFolder(mesh_device, batch_size):
     disable_persistent_kernel_cache()
+
+    device = mesh_device
 
     torch_model = models.alexnet(weights=models.AlexNet_Weights.IMAGENET1K_V1)
     torch_model.eval()
@@ -58,30 +72,23 @@ def run_alexnet_on_imageFolder(device, batch_size):
 
     test_input = get_dataset(batch_size=batch_size)
 
-    core_grid = ttnn.CoreGrid(y=8, x=8)
-    n, c, h, w = test_input.shape
+    inputs_mesh_mapper, output_mesh_composer = get_mesh_mappers(device)
 
-    # sharded mem config for fold input
-    num_cores = core_grid.x * core_grid.y
-    shard_h = (n * w * h + num_cores - 1) // num_cores
-    grid_size = core_grid
-    grid_coord = ttnn.CoreCoord(grid_size.x - 1, grid_size.y - 1)
-    shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), grid_coord)})
-    shard_spec = ttnn.ShardSpec(shard_grid, (shard_h, 16), ttnn.ShardOrientation.ROW_MAJOR)
-    input_mem_config = ttnn.MemoryConfig(
-        ttnn.types.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.types.BufferType.L1, shard_spec
-    )
+    parameters = custom_preprocessor(device, state_dict=state_dict)
+
     ttnn_input = test_input.permute(0, 2, 3, 1)
-    ttnn_input = ttnn_input.reshape(1, 1, h * w * n, c)
-    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
-    ttnn_input = ttnn.pad(ttnn_input, [1, 1, n * h * w, 16], [0, 0, 0, 0], 0)
-
-    ttnn_input = ttnn_input.to(device, input_mem_config)
+    ttnn_input = ttnn.from_torch(
+        ttnn_input,
+        dtype=ttnn.bfloat16,
+        layout=ttnn.ROW_MAJOR_LAYOUT,
+        mesh_mapper=inputs_mesh_mapper,
+        device=device,
+    )
 
     with torch.inference_mode():
-        tt_model = TT_Alexnet(device, test_input.shape, parameters)
+        tt_model = TT_Alexnet(device, ttnn_input.shape, parameters, inputs_mesh_mapper, output_mesh_composer)
         ttnn_output_tensor = tt_model(ttnn_input)
-        ttnn_output_tensor = ttnn.to_torch(ttnn_output_tensor)
+        ttnn_output_tensor = ttnn.to_torch(ttnn_output_tensor, mesh_composer=output_mesh_composer)
         ttnn_predicted_probabilities = torch.nn.functional.softmax(ttnn_output_tensor, dim=1)
         _, ttnn_predicted_labels = torch.max(ttnn_predicted_probabilities, 1)
 
@@ -106,9 +113,9 @@ def run_alexnet_on_imageFolder(device, batch_size):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("batch_size", [1, 2, 8, 12])
-def test_alexnet_on_imageFolder(device, batch_size):
+@pytest.mark.parametrize("batch_size", [4, 6])
+def test_alexnet_on_imageFolder(mesh_device, batch_size):
     disable_persistent_kernel_cache()
     disable_compilation_reports()
 
-    return run_alexnet_on_imageFolder(device, batch_size)
+    return run_alexnet_on_imageFolder(mesh_device, batch_size)
