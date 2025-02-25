@@ -136,6 +136,7 @@ def Bottleneck(
     batch_size=1,
     temp="",
     width_shard=False,
+    block_shard=False,
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -152,6 +153,7 @@ def Bottleneck(
         output_layout=output_layout,
         batch_size=batch_size,
         width_shard=width_shard,
+        block_shard=block_shard,
     )
 
     if temp == "c2f8":
@@ -171,6 +173,7 @@ def Bottleneck(
         deallocate_activation=deallocate_activation,
         batch_size=batch_size,
         width_shard=width_shard,
+        block_shard=block_shard,
     )
 
     ttnn.deallocate(cv1)
@@ -216,6 +219,7 @@ def c2f(
         change_shard=change_shard,
         width_shard=width_shard,
         batch_size=batch_size,
+        block_shard=False if temp == "c2f18" else block_shard,
     )
 
     if use_interleaved:
@@ -255,6 +259,7 @@ def c2f(
             batch_size=batch_size,
             temp=temp,
             width_shard=width_shard,
+            block_shard=block_shard,
         )
         y.append(z)
         to_tile = False
@@ -541,7 +546,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         out_w,
         n=2,
         shortcut=True,
-        width_shard=True,
+        block_shard=True,
         use_interleaved=True,
         batch_size=batch_size,
         temp="c2f8" if batch_size > 6 else "",
