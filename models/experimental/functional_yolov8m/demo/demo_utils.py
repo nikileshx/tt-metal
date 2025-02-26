@@ -278,7 +278,7 @@ def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding=True, xyw
 
 
 def postprocess(preds, img, orig_imgs, batch, names):
-    args = {"conf": 0.1, "iou": 0.7, "agnostic_nms": False, "max_det": 300, "classes": None}
+    args = {"conf": 0.25, "iou": 0.7, "agnostic_nms": False, "max_det": 300, "classes": None}
 
     preds = non_max_suppression(
         preds,
