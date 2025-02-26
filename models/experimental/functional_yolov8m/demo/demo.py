@@ -99,6 +99,10 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
 @pytest.mark.parametrize(
     "source, model_type",
     [
+        ("models/experimental/functional_yolov8m/demo/images/dog.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/dog.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/cycle_girl.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/cycle_girl.jpg", "tt_model"),
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "torch_model"),
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "tt_model"),
         ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "torch_model"),
