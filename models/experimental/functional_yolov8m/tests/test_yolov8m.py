@@ -67,8 +67,8 @@ def get_expected_times(name):
 
 @pytest.mark.models_performance_bare_metal
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("batch_size", [(1)])
-@pytest.mark.parametrize("input_tensor", [torch.rand((1, 3, 320, 320))], ids=["input_tensor"])
+@pytest.mark.parametrize("batch_size", [(4)])
+@pytest.mark.parametrize("input_tensor", [torch.rand((4, 3, 320, 320))], ids=["input_tensor"])
 def test_yolov8m(device, input_tensor, batch_size):
     disable_persistent_kernel_cache()
 
@@ -76,17 +76,40 @@ def test_yolov8m(device, input_tensor, batch_size):
 
     state_dict = torch_model.state_dict()
 
-    inp_h, inp_w = input_tensor.shape[2], input_tensor.shape[3]
+    bs, inp_h, inp_w = input_tensor.shape[0], input_tensor.shape[2], input_tensor.shape[3]
 
     parameters = custom_preprocessor(device, state_dict, inp_h=inp_h, inp_w=inp_w)
 
-    ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    core_grid = ttnn.CoreGrid(y=8, x=8)
+    n, c, h, w = input_tensor.shape
+
+    # sharded mem config for fold input
+    num_cores = core_grid.x * core_grid.y
+    shard_h = (n * w * h + num_cores - 1) // num_cores
+    grid_size = core_grid
+    grid_coord = ttnn.CoreCoord(grid_size.x - 1, grid_size.y - 1)
+    shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), grid_coord)})
+    shard_spec = ttnn.ShardSpec(shard_grid, (shard_h, 16), ttnn.ShardOrientation.ROW_MAJOR)
+    input_mem_config = ttnn.MemoryConfig(
+        ttnn.types.TensorMemoryLayout.HEIGHT_SHARDED, ttnn.types.BufferType.L1, shard_spec
+    )
+    ttnn_input = input_tensor.permute(0, 2, 3, 1)
+    ttnn_input = ttnn_input.reshape(1, 1, h * w * n, c)
+    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+    ttnn_input = ttnn.pad(ttnn_input, [1, 1, n * h * w, 16], [0, 0, 0, 0], 0)
+
+    ttnn_input = ttnn_input.to(device, input_mem_config)
+
+    # for batch size 8
+
+    # ttnn_input = input_tensor.permute((0, 2, 3, 1))
+    # ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
     durations = []
 
     for i in range(2):
         start = time.time()
-        ttnn_model_output = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w))[0]
+        ttnn_model_output = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w), batch_size=bs)[0]
         end = time.time()
         durations.append(end - start)
         enable_persistent_kernel_cache()
@@ -97,7 +120,7 @@ def test_yolov8m(device, input_tensor, batch_size):
 
     prep_perf_report(
         model_name="models/experimental/functional_yolov8m",
-        batch_size=batch_size,
+        batch_size=bs,
         inference_and_compile_time=inference_and_compile_time,
         inference_time=inference_time,
         expected_compile_time=expected_compile_time,
@@ -106,6 +129,8 @@ def test_yolov8m(device, input_tensor, batch_size):
         inference_time_cpu=0.0,
     )
 
+    logger.info(f"{durations}")
+    logger.info(f"Batch size: {batch_size}")
     logger.info(f"Compile time: {inference_and_compile_time - inference_time}")
     logger.info(f"Inference time: {inference_time}")
     logger.info(f"Samples per second: {1 / inference_time * batch_size}")
@@ -114,7 +139,8 @@ def test_yolov8m(device, input_tensor, batch_size):
 @pytest.mark.parametrize(
     "batch_size, expected_perf",
     [
-        [1, 10.94],
+        [4, 266.27],
+        # [8, 123.70],
     ],
 )
 @pytest.mark.models_device_performance_bare_metal
@@ -122,7 +148,7 @@ def test_perf_device_bare_metal_yolov8m(batch_size, expected_perf):
     subdir = "ttnn_yolov8m"
     num_iterations = 1
     margin = 0.03
-    expected_perf = expected_perf if is_wormhole_b0() else 10.94
+    expected_perf = expected_perf if is_wormhole_b0() else 123.70
 
     command = f"pytest tests/ttnn/integration_tests/yolov8m/test_ttnn_yolov8m.py::test_demo"
     cols = ["DEVICE FW", "DEVICE KERNEL", "DEVICE BRISC KERNEL"]
