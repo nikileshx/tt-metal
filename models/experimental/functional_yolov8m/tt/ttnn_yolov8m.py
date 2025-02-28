@@ -465,6 +465,56 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True, batch_size=1
     return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]  # oup memory config as ttnn.L1 affects bounding boxes
 
 
+def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
+    input_sharded_memory_config = []
+
+    shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 7))})
+
+    for i in range(len(input_tensors)):
+        in_shard_width = input_tensors[i].shape[-1]
+        shard_height = (input_tensors[i].shape[2] + num_cores - 1) // num_cores
+        memory_config = ttnn.create_sharded_memory_config(
+            (shard_height, in_shard_width),
+            core_grid=shard_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        input_sharded_memory_config.append(memory_config)
+
+    out_shard_width = 0
+    for i in range(len(input_tensors)):
+        out_shard_width += input_tensors[i].shape[-1]
+        input_tensors[i] = ttnn.to_memory_config(input_tensors[i], input_sharded_memory_config[i])
+
+    # in_shard_width = input_tensors[1].shape[-1]
+    # shard_height = (input_tensors[1].shape[2] + num_cores - 1) // num_cores
+    # memory_config = ttnn.create_sharded_memory_config(
+    #     (shard_height, in_shard_width),
+    #     core_grid=shard_grid,
+    #     strategy=ttnn.ShardStrategy.HEIGHT,
+    #     use_height_and_width_as_shard_shape=True,
+    # )
+    # input_sharded_memory_config.append(memory_config)
+
+    # input_tensors[1] = ttnn.to_memory_config(input_tensors[1], input_sharded_memory_config[0])
+
+    # out_shard_width = 0
+    # for i in range(len(input_tensors)):
+    #     out_shard_width += input_tensors[i].shape[-1]
+
+    output_sharded_memory_config = ttnn.create_sharded_memory_config(
+        (shard_height, out_shard_width),
+        core_grid=shard_grid,
+        strategy=ttnn.ShardStrategy.HEIGHT,
+        use_height_and_width_as_shard_shape=True,
+    )
+
+    output = ttnn.concat(input_tensors, dim, memory_config=output_sharded_memory_config)
+    output = ttnn.sharded_to_interleaved(output, ttnn.L1_MEMORY_CONFIG)
+
+    return output
+
+
 def DetectionModel(device, x, parameters, res, batch_size):
     print(f"Inference running for batch size: {batch_size}")
     x, out_h, out_w = conv(
@@ -520,6 +570,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     six = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x, out_h, out_w = conv(
@@ -554,9 +605,9 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x, out_h, out_w = SPPF(device, x, parameters, "model.9", out_h, out_w, batch_size=batch_size)
 
-    nine = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
-
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    nine = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
@@ -564,9 +615,12 @@ def DetectionModel(device, x, parameters, res, batch_size):
     inp_h, inp_w = x.shape[1], x.shape[2]
 
     x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x = ttnn.concat([x, six], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.concat([x, six], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = get_concat_shard(device, [x, six], dim=3)
+
     ttnn.deallocate(six)
 
     x, out_h, out_w = c2f(
@@ -603,12 +657,29 @@ def DetectionModel(device, x, parameters, res, batch_size):
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
     fifteen = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x, out_h, out_w = conv(device, x, parameters, "model.16", out_h, out_w, 3, 2, 1, batch_size=batch_size)
+    x, out_h, out_w = conv(
+        device,
+        x,
+        parameters,
+        "model.16",
+        out_h,
+        out_w,
+        3,
+        2,
+        1,
+        batch_size=batch_size,
+        output_layout=ttnn.ROW_MAJOR_LAYOUT,
+    )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x = ttnn.concat([x, twelve], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.concat([x, twelve], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    # change
+
+    x = get_concat_shard(device, [x, twelve], dim=3)
+
     ttnn.deallocate(twelve)
 
     x, out_h, out_w = c2f(
@@ -629,11 +700,24 @@ def DetectionModel(device, x, parameters, res, batch_size):
     eighteen = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x, out_h, out_w = conv(
-        device, x, parameters, "model.19", out_h, out_w, 3, 2, 1, block_shard=True, batch_size=batch_size
+        device,
+        x,
+        parameters,
+        "model.19",
+        out_h,
+        out_w,
+        3,
+        2,
+        1,
+        block_shard=True,
+        batch_size=batch_size,
+        output_layout=ttnn.ROW_MAJOR_LAYOUT,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.concat([x, nine], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.concat([x, nine], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = get_concat_shard(device, [x, nine], dim=3)
 
     ttnn.deallocate(nine)
 
