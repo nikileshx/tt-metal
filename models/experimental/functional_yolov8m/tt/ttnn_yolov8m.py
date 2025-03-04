@@ -106,7 +106,6 @@ def conv(
         return ttnn.reshape(x, (batch_size, 4, -1), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     if is_detect_cv2:
-        # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
         x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
         return (x, out_height, out_width)
 
@@ -232,8 +231,6 @@ def c2f(
         bs, h, w, c = cv1.shape
         y.append(ttnn.slice(cv1, [0, 0, 0, 0], [bs, h, w, c // 2], memory_config=ttnn.L1_MEMORY_CONFIG))
         y.append(ttnn.slice(cv1, [0, 0, 0, c // 2], [bs, h, w, c], memory_config=ttnn.L1_MEMORY_CONFIG))
-        # y.append(cv1[:, :, :, : cv1.shape[-1] // 2])
-        # y.append(cv1[:, :, :, cv1.shape[-1] // 2 :])
 
     ttnn.deallocate(cv1)
 
@@ -324,11 +321,9 @@ def SPPF(device, x, parameters, path, in_h, in_w, k=5, batch_size=1):
             stride=[1, 1],
             padding=[p, p],
             dilation=[1, 1],
-            # memory_config=ttnn.L1_MEMORY_CONFIG,
         )
         y.append(output)
 
-    # x = ttnn.concat(y, 3, memory_config=ttnn.L1_MEMORY_CONFIG)
     x = get_concat_shard(device, y)
 
     for i in range(len(y)):
@@ -440,7 +435,6 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True, batch_size=1
             bfloat8=bfloat8,
             batch_size=batch_size,
         )[0]
-        # x[i] = ttnn.concat((a, b), dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
         x[i] = get_concat_shard(device, [a, b])
 
     anchors, strides = parameters["anchors"], parameters["strides"]
@@ -521,7 +515,6 @@ def DetectionModel(device, x, parameters, res, batch_size):
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    # x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     six = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x, out_h, out_w = conv(
@@ -568,8 +561,6 @@ def DetectionModel(device, x, parameters, res, batch_size):
     x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x = ttnn.concat([x, six], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
-
-    # x = get_concat_shard(device, [x, six], dim=3)
 
     ttnn.deallocate(six)
 
@@ -621,13 +612,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    # x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-
     x = ttnn.concat([x, twelve], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
-
-    # change
-
-    # x = get_concat_shard(device, [x, twelve], dim=3)
 
     ttnn.deallocate(twelve)
 
@@ -660,13 +645,10 @@ def DetectionModel(device, x, parameters, res, batch_size):
         1,
         block_shard=True,
         batch_size=batch_size,
-        # output_layout=ttnn.ROW_MAJOR_LAYOUT,
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
     x = ttnn.concat([x, nine], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
-
-    # x = get_concat_shard(device, [x, nine], dim=3)
 
     ttnn.deallocate(nine)
 
