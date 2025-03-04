@@ -55,8 +55,9 @@ def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
     distance = ttnn.to_layout(distance, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     # lt, rb = ttnn.split(distance, 2, 1, memory_config=ttnn.L1_MEMORY_CONFIG)  # if done in tile : tt-metal issue #17017
 
-    lt = distance[:, : distance.shape[1] // 2, :]
-    rb = distance[:, distance.shape[1] // 2 :, :]
+    a, b, c = distance.shape
+    lt = ttnn.slice(distance, [0, 0, 0], [a, b // 2, c], memory_config=ttnn.L1_MEMORY_CONFIG)
+    rb = ttnn.slice(distance, [0, b // 2, 0], [a, b, c], memory_config=ttnn.L1_MEMORY_CONFIG)
 
     lt = ttnn.to_layout(lt, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     rb = ttnn.to_layout(rb, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
