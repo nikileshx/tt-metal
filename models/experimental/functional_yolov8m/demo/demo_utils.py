@@ -5,6 +5,7 @@
 import os
 import cv2
 import math
+import glob
 import time
 import torch
 import torchvision
@@ -27,6 +28,8 @@ class LoadImages:
             a = str(Path(p).absolute())
             if os.path.isfile(a):
                 files.append(a)
+            elif os.path.isdir(a):
+                files.extend(sorted(glob.glob(os.path.join(a, "*.*"))))
             else:
                 raise FileNotFoundError(f"{p} does not exist")
 
@@ -278,7 +281,7 @@ def scale_boxes(img1_shape, boxes, img0_shape, ratio_pad=None, padding=True, xyw
 
 
 def postprocess(preds, img, orig_imgs, batch, names):
-    args = {"conf": 0.25, "iou": 0.7, "agnostic_nms": False, "max_det": 300, "classes": None}
+    args = {"conf": 0.1, "iou": 0.7, "agnostic_nms": False, "max_det": 300, "classes": None}
 
     preds = non_max_suppression(
         preds,
