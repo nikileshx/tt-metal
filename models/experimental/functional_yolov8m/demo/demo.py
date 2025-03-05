@@ -71,7 +71,7 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
     if model_name == "torch_model":
         bounding_box_color, label_color = (0, 255, 0), (0, 255, 0)
     else:
-        bounding_box_color, label_color = (255, 0, 0), (255, 0, 0)
+        bounding_box_color, label_color = (255, 0, 0), (255, 255, 0)
 
     boxes = result["boxes"]["xyxy"]
     scores = result["boxes"]["conf"]
@@ -101,11 +101,16 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
     [
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "torch_model"),
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/laptop.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/laptop.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test1.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test2.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/test3.jpg", "tt_model"),
     ],
 )
-def test_demo(device, source, model_type):
+@pytest.mark.parametrize("res", [(320, 320)])
+def test_demo(device, source, model_type, res):
     disable_persistent_kernel_cache()
 
     if model_type == "torch_model":
@@ -113,7 +118,7 @@ def test_demo(device, source, model_type):
         logger.info("Inferencing using Torch Model")
     else:
         state_dict = attempt_load("yolov8m.pt", map_location="cpu").state_dict()
-        parameters = custom_preprocessor(device, state_dict)
+        parameters = custom_preprocessor(device, state_dict, inp_h=320, inp_w=320)
         model = partial(YOLOv8m, device=device, parameters=parameters)
         logger.info("Inferencing using ttnn Model")
 
@@ -206,8 +211,6 @@ def test_demo(device, source, model_type):
         78: "hair drier",
         79: "toothbrush",
     }
-
-    res = (320, 320)
 
     for batch in dataset:
         paths, im0s, s = batch

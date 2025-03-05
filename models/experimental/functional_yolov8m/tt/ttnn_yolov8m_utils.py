@@ -31,8 +31,29 @@ def autopad(k, p=None, d=1):
     return p if isinstance(p, int) else p[0]
 
 
+def make_anchors(device, feats, strides, grid_cell_offset=0.5):
+    anchor_points, stride_tensor = [], []
+    assert feats is not None
+    for i, stride in enumerate(strides):
+        h, w = feats[i]
+        sx = torch.arange(end=w) + grid_cell_offset
+        sy = torch.arange(end=h) + grid_cell_offset
+        sy, sx = torch.meshgrid(sy, sx)
+        anchor_points.append(torch.stack((sx, sy), -1).view(-1, 2))
+        stride_tensor.append(torch.full((h * w, 1), stride))
+
+    a = torch.cat(anchor_points).transpose(0, 1).unsqueeze(0)
+    b = torch.cat(stride_tensor).transpose(0, 1)
+
+    return (
+        ttnn.from_torch(a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+        ttnn.from_torch(b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+    )
+
+
 def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True, dim=1):
-    lt, rb = ttnn.split(distance, 2, 1)
+    distance = ttnn.to_layout(distance, ttnn.ROW_MAJOR_LAYOUT)
+    lt, rb = ttnn.split(distance, 2, 1)  # if done in tile : tt-metal issue #17017
     lt = ttnn.to_layout(lt, ttnn.TILE_LAYOUT)
     rb = ttnn.to_layout(rb, ttnn.TILE_LAYOUT)
 
@@ -45,14 +66,36 @@ def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True, dim=1):
         return ttnn.concat([c_xy, wh], 1)
 
 
+def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
+    if bias:
+        conv_weight = state_dict[f"{path}.2.weight"]
+        conv_bias = state_dict[f"{path}.2.bias"]
+
+        if bfloat8:
+            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.float32)
+            conv_bias = ttnn.reshape(ttnn.from_torch(conv_bias, dtype=ttnn.float32), (1, 1, 1, -1))
+        else:
+            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.bfloat16)
+            conv_bias = ttnn.reshape(ttnn.from_torch(conv_bias, dtype=ttnn.bfloat16), (1, 1, 1, -1))
+
+        return (conv_weight, conv_bias)
+
+    else:
+        conv_weight = state_dict[f"{path}.conv.weight"]
+
+        if bfloat8:
+            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.float32)
+        else:
+            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.bfloat16)
+
+        return (conv_weight, None)
+
+
 def ttnn_make_anchors(device, feats, strides, grid_cell_offset=0.5):
     anchor_points, stride_tensor = [], []
-    assert feats is not None
-    strides = [8, 16, 32]
-
     feats = [(40, 40), (20, 20), (10, 10)]
     for i, stride in enumerate(strides):
-        h, w = feats[i]
+        h, w = feats[i][0], feats[i][1]
 
         sx = ttnn.arange(start=0, end=w, dtype=ttnn.bfloat16, device=device)
         sy = ttnn.arange(start=0, end=h, dtype=ttnn.bfloat16, device=device)
@@ -101,32 +144,7 @@ def ttnn_make_anchors(device, feats, strides, grid_cell_offset=0.5):
     return (a, b)
 
 
-def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
-    if bias:
-        conv_weight = state_dict[f"{path}.2.weight"]
-        conv_bias = state_dict[f"{path}.2.bias"]
-
-        if bfloat8:
-            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.float32)
-            conv_bias = ttnn.reshape(ttnn.from_torch(conv_bias, dtype=ttnn.float32), (1, 1, 1, -1))
-        else:
-            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.bfloat16)
-            conv_bias = ttnn.reshape(ttnn.from_torch(conv_bias, dtype=ttnn.bfloat16), (1, 1, 1, -1))
-
-        return (conv_weight, conv_bias)
-
-    else:
-        conv_weight = state_dict[f"{path}.conv.weight"]
-
-        if bfloat8:
-            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.float32)
-        else:
-            conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.bfloat16)
-
-        return (conv_weight, None)
-
-
-def custom_preprocessor(device, state_dict):
+def custom_preprocessor(device, state_dict, inp_h=320, inp_w=320):
     pairs = [
         ("model.0", True),
         ("model.1", True),
@@ -226,5 +244,14 @@ def custom_preprocessor(device, state_dict):
     # DFL conv
 
     parameters["model.22.dfl"] = preprocess_parameters(state_dict, "model.22.dfl", bias=False)
+
+    strides = [8, 16, 32]
+
+    feats = [(inp_h // 8, inp_w // 8), (inp_h // 16, inp_w // 16), (inp_h // 32, inp_w // 32)]  # value depend on res
+
+    anchors, strides = make_anchors(device, feats, strides)  # Optimization: Processing make anchors outside model run
+
+    parameters["anchors"] = anchors
+    parameters["strides"] = strides
 
     return parameters
