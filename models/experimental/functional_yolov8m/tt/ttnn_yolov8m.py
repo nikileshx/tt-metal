@@ -202,6 +202,7 @@ def c2f(
     use_interleaved=False,
     batch_size=1,
     temp="",
+    concat_flag=False,
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -259,17 +260,19 @@ def c2f(
         y.append(z)
         to_tile = False
 
-    y[0] = ttnn.to_layout(y[0], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    y[1] = ttnn.to_layout(y[1], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    if not concat_flag:
+        y[0] = ttnn.to_layout(y[0], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        y[1] = ttnn.to_layout(y[1], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     if not shortcut:
         for i in range(2, len(y)):
             y[i] = ttnn.sharded_to_interleaved(y[i], ttnn.L1_MEMORY_CONFIG)
 
-    if batch_size > 6:
-        x = ttnn.concat(y, 3)
-    else:
-        x = ttnn.concat(y, 3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    if concat_flag:
+        for i in range(2, len(y)):
+            y[i] = ttnn.to_layout(y[i], layout=ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = ttnn.concat(y, 3, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     for i in range(len(y)):
         ttnn.deallocate(y[i])
@@ -284,7 +287,7 @@ def c2f(
         1,
         bfloat8=bfloat8,
         block_shard=block_shard,
-        change_shard=True if temp == "c2f8" else change_shard,
+        change_shard=True if temp == "c2f8" or concat_flag else change_shard,
         batch_size=batch_size,
     )
     return x, out_h, out_w
@@ -462,19 +465,31 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True, batch_size=1
 
 def DetectionModel(device, x, parameters, res, batch_size):
     print(f"Inference running for batch size: {batch_size}")
+
     x, out_h, out_w = conv(
         device, x, parameters, "model.0", res[0], res[1], 3, 2, 1, act_block_h=True, batch_size=batch_size
     )
 
     if batch_size > 6:
-        x = ttnn.from_device(x)
+        x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+        x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x, out_h, out_w = conv(
         device, x, parameters, "model.1", out_h, out_w, 3, 2, 1, act_block_h=True, batch_size=batch_size
     )
 
     x, out_h, out_w = c2f(
-        device, x, parameters, "model.2", out_h, out_w, n=2, shortcut=True, act_block_h=True, batch_size=batch_size
+        device,
+        x,
+        parameters,
+        "model.2",
+        out_h,
+        out_w,
+        n=2,
+        shortcut=True,
+        act_block_h=True,
+        batch_size=batch_size,
+        concat_flag=True,
     )
 
     x, out_h, out_w = conv(device, x, parameters, "model.3", out_h, out_w, 3, 2, batch_size=batch_size)
