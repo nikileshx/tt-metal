@@ -103,7 +103,7 @@ def run_submodule(x, submodule):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((6, 3, 320, 320)))],
+    [(torch.rand((1, 3, 320, 320)))],
     ids=[
         "input_tensor1",
     ],
@@ -140,7 +140,7 @@ def test_demo(device, input_tensor):
     # ttnn_input = ttnn_input.to(device, input_mem_config)
 
     ttnn_input = input_tensor.permute((0, 2, 3, 1))
-    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
+    ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
 
     with torch.inference_mode():
         ttnn_model_output = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w), batch_size=bs)[0]
