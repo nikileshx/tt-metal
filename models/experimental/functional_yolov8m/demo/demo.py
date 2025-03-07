@@ -104,7 +104,7 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
     ],
 )
 @pytest.mark.parametrize("res", [(320, 320)])
-@pytest.mark.parametrize("batch_size", [6])
+@pytest.mark.parametrize("batch_size", [8])
 def test_demo(device, source, model_type, res, batch_size):
     disable_persistent_kernel_cache()
 

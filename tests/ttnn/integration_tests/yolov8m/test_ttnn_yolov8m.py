@@ -103,7 +103,7 @@ def run_submodule(x, submodule):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((1, 3, 320, 320)))],
+    [(torch.rand((8, 3, 320, 320)))],
     ids=[
         "input_tensor1",
     ],
