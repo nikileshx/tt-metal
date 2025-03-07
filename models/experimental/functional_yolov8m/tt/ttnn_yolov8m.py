@@ -106,7 +106,7 @@ def conv(
         return ttnn.reshape(x, (batch_size, 4, -1), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     if is_detect_cv2:
-        x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT)
+        x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
         return (x, out_height, out_width)
 
     x = ttnn.silu(x)
@@ -452,7 +452,14 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True, batch_size=1
     dbox = ttnn_decode_bboxes(device, dfl, anchors)
     dbox = ttnn.multiply(dbox, strides, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]  # oup memory config as ttnn.L1 affects bounding boxes
+    cls = ttnn.sigmoid(cls, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    cls = ttnn.to_layout(cls, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    dbox = ttnn.to_layout(dbox, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    return [ttnn.concat((dbox, cls), dim=1, memory_config=ttnn.L1_MEMORY_CONFIG), x]
+
+    # return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]  # oup memory config as ttnn.L1 affects bounding boxes
 
 
 def DetectionModel(device, x, parameters, res, batch_size):

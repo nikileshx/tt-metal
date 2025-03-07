@@ -39,7 +39,6 @@ def decode_bboxes(distance, anchor_points, xywh=True, dim=1):
         c_xy = (x1y1 + x2y2) / 2
         wh = x2y2 - x1y1
         return torch.cat((c_xy, wh), dim)
-    return torch.cat((x1y1, x2y2), dim)
 
 
 def make_anchors(feats, strides, grid_cell_offset=0.5):
@@ -151,6 +150,66 @@ def test_demo(device, input_tensor):
 
     passing, pcc = assert_with_pcc(ttnn_model_output, torch_model_output, 0.99)
     logger.info(f"Passing: {passing}, PCC: {pcc}")
+
+
+# @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
+# @pytest.mark.parametrize(
+#     "input_tensor",
+#     [(torch.rand((8, 3, 320, 320)))],
+#     ids=[
+#         "input_tensor1",
+#     ],
+# )
+# def test_demo(device, input_tensor):
+#     disable_persistent_kernel_cache()
+
+#     torch_model = attempt_load("yolov8m.pt", map_location="cpu")
+
+#     state_dict = torch_model.state_dict()
+
+#     bs, inp_h, inp_w = input_tensor.shape[0], input_tensor.shape[2], input_tensor.shape[3]
+
+#     parameters = custom_preprocessor(device, state_dict, inp_h=inp_h, inp_w=inp_w)
+
+#     ttnn_input = input_tensor.permute((0, 2, 3, 1))
+#     ttnn_input = ttnn.from_torch(ttnn_input, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT)
+
+#     with torch.inference_mode():
+#         ttnn_model_output, out_h, out_w = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w), batch_size=bs)
+#         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
+#         ttnn_model_output = ttnn_model_output.reshape((bs, out_h, out_w, ttnn_model_output.shape[-1]))
+#         ttnn_model_output = ttnn_model_output.permute((0, 3, 1, 2))
+
+#     submodule = nn.Sequential(
+#         torch_model.get_submodule('model.0'),
+#         torch_model.get_submodule('model.1'),
+#         torch_model.get_submodule('model.2'),
+#         torch_model.get_submodule('model.3'),
+#         torch_model.get_submodule('model.4'),
+#         torch_model.get_submodule('model.5'),
+#         torch_model.get_submodule('model.6'),
+#         torch_model.get_submodule('model.7'),
+#         torch_model.get_submodule('model.8'),
+#         torch_model.get_submodule('model.9'),
+#         torch_model.get_submodule('model.10'),
+#         torch_model.get_submodule('model.11'),
+#         torch_model.get_submodule('model.12'),
+#         torch_model.get_submodule('model.13'),
+#         torch_model.get_submodule('model.14'),
+#         torch_model.get_submodule('model.15'),
+#         torch_model.get_submodule('model.16'),
+#         torch_model.get_submodule('model.17'),
+#         torch_model.get_submodule('model.18'),
+#         torch_model.get_submodule('model.19'),
+#         torch_model.get_submodule('model.20'),
+#         torch_model.get_submodule('model.21'),
+#     )
+
+#     with torch.inference_mode():
+#         torch_model_output = run_submodule(input_tensor, submodule)
+
+#     passing, pcc = assert_with_pcc(ttnn_model_output, torch_model_output, 0.99)
+#     logger.info(f"Passing: {passing}, PCC: {pcc}")
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
@@ -370,7 +429,7 @@ def test_Detect_cv3(device, input_tensor, c1, c2, k, reg_max, idx):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [([torch.rand((2, 192, 40, 40)), torch.rand((2, 384, 20, 20)), torch.rand((2, 576, 10, 10))])],
+    [([torch.rand((8, 192, 40, 40)), torch.rand((8, 384, 20, 20)), torch.rand((8, 576, 10, 10))])],
     ids=["input_tensor1"],
 )
 def test_last_detect(device, input_tensor):
@@ -408,12 +467,14 @@ def test_last_detect(device, input_tensor):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("input_tensor", [(torch.rand((1, 64, 8400)))], ids=["input_tensor1"])
+@pytest.mark.parametrize("input_tensor", [(torch.rand((8, 64, 2100)))], ids=["input_tensor1"])
 def test_DFL(device, input_tensor):
     disable_persistent_kernel_cache()
 
     torch_model = attempt_load("yolov8m.pt", map_location="cpu")
     torch_model.eval()
+
+    bs = input_tensor[0].shape[0]
 
     ttnn_input = ttnn.from_torch(input_tensor, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device)
 
@@ -422,7 +483,7 @@ def test_DFL(device, input_tensor):
     parameters = custom_preprocessor(device, state_dict)
 
     with torch.inference_mode():
-        ttnn_model_output = DFL(device, ttnn_input, parameters, "model.22.dfl")
+        ttnn_model_output = DFL(device, ttnn_input, parameters, "model.22.dfl", batch_size=bs)
         ttnn_model_output = ttnn.to_torch(ttnn_model_output)
 
     submodule = torch_model.get_submodule("model.22.dfl")
@@ -436,7 +497,7 @@ def test_DFL(device, input_tensor):
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
-    "distance, anchors", [(torch.rand((1, 4, 2100)), torch.rand((1, 2, 2100)))], ids=["input_tensor"]
+    "distance, anchors", [(torch.rand((8, 4, 2100)), torch.rand((1, 2, 2100)))], ids=["input_tensor"]
 )
 def test_dist2bbox(device, distance, anchors):
     disable_persistent_kernel_cache()
