@@ -153,9 +153,6 @@ def Bottleneck(
         block_shard=block_shard,
     )
 
-    if temp == "c2f8":
-        cv1 = ttnn.from_device(cv1)
-
     cv2, out_h, out_w = conv(
         device,
         cv1,
@@ -203,6 +200,7 @@ def c2f(
     batch_size=1,
     temp="",
     concat_flag=False,
+    memory_config=None,
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -217,21 +215,15 @@ def c2f(
         change_shard=change_shard,
         width_shard=width_shard,
         batch_size=batch_size,
-        block_shard=False if temp == "c2f18" else block_shard,
+        block_shard=block_shard,
     )
-
-    if use_interleaved:
-        cv1 = ttnn.sharded_to_interleaved(cv1, ttnn.L1_MEMORY_CONFIG)
 
     cv1 = ttnn.to_layout(cv1, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    if temp in ["c2f6", "c2f12", "c2f18", "c2f21"]:
-        y = list(ttnn.split(cv1, 2, 3, memory_config=ttnn.L1_MEMORY_CONFIG))
-    else:
-        y = []
-        bs, h, w, c = cv1.shape
-        y.append(ttnn.slice(cv1, [0, 0, 0, 0], [bs, h, w, c // 2], memory_config=ttnn.L1_MEMORY_CONFIG))
-        y.append(ttnn.slice(cv1, [0, 0, 0, c // 2], [bs, h, w, c], memory_config=ttnn.L1_MEMORY_CONFIG))
+    y = []
+    bs, h, w, c = cv1.shape
+    y.append(ttnn.slice(cv1, [0, 0, 0, 0], [bs, h, w, c // 2], memory_config=ttnn.L1_MEMORY_CONFIG))
+    y.append(ttnn.slice(cv1, [0, 0, 0, c // 2], [bs, h, w, c], memory_config=ttnn.L1_MEMORY_CONFIG))
 
     ttnn.deallocate(cv1)
 
@@ -253,7 +245,6 @@ def c2f(
             change_shard=change_shard,
             tilize=to_tile,
             batch_size=batch_size,
-            temp=temp,
             width_shard=width_shard,
             block_shard=block_shard,
         )
@@ -287,8 +278,9 @@ def c2f(
         1,
         bfloat8=bfloat8,
         block_shard=block_shard,
-        change_shard=True if temp == "c2f8" or concat_flag else change_shard,
+        change_shard=True if concat_flag else change_shard,
         batch_size=batch_size,
+        memory_config=memory_config,
     )
     return x, out_h, out_w
 
@@ -303,8 +295,8 @@ def SPPF(device, x, parameters, path, in_h, in_w, k=5, batch_size=1):
         in_w,
         1,
         1,
-        change_shard=True,
-        memory_config=ttnn.L1_MEMORY_CONFIG,
+        change_shard=False,
+        act_block_h=True,
         batch_size=batch_size,
     )
 
@@ -490,6 +482,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         act_block_h=True,
         batch_size=batch_size,
         concat_flag=True,
+        memory_config=ttnn.L1_MEMORY_CONFIG,
     )
 
     x, out_h, out_w = conv(device, x, parameters, "model.3", out_h, out_w, 3, 2, batch_size=batch_size)
@@ -523,10 +516,9 @@ def DetectionModel(device, x, parameters, res, batch_size):
         out_w,
         n=4,
         shortcut=True,
-        block_shard=True,
+        block_shard=False,
         change_shard=False,
         batch_size=batch_size,
-        temp="c2f6",
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
@@ -542,7 +534,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         3,
         2,
         1,
-        block_shard=True,
+        block_shard=False,
         change_shard=False,
         batch_size=batch_size,
     )
@@ -556,10 +548,9 @@ def DetectionModel(device, x, parameters, res, batch_size):
         out_w,
         n=2,
         shortcut=True,
-        block_shard=True,
-        use_interleaved=True,
+        block_shard=False,
         batch_size=batch_size,
-        temp="c2f8" if batch_size > 6 else "",
+        memory_config=ttnn.L1_MEMORY_CONFIG,
     )
 
     x, out_h, out_w = SPPF(device, x, parameters, "model.9", out_h, out_w, batch_size=batch_size)
@@ -590,7 +581,6 @@ def DetectionModel(device, x, parameters, res, batch_size):
         shortcut=False,
         bfloat8=True,
         batch_size=batch_size,
-        temp="c2f12",
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
@@ -641,8 +631,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         n=2,
         shortcut=False,
         batch_size=batch_size,
-        temp="c2f18",
-        block_shard=True,
+        block_shard=False,
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
@@ -658,7 +647,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         3,
         2,
         1,
-        block_shard=True,
+        block_shard=False,
         batch_size=batch_size,
     )
 
@@ -667,9 +656,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     ttnn.deallocate(nine)
 
-    x, out_h, out_w = c2f(
-        device, x, parameters, "model.21", out_h, out_w, n=2, shortcut=False, batch_size=batch_size, temp="c2f21"
-    )
+    x, out_h, out_w = c2f(device, x, parameters, "model.21", out_h, out_w, n=2, shortcut=False, batch_size=batch_size)
 
     x = [fifteen, eighteen, x]
 
