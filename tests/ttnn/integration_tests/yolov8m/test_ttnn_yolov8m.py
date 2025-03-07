@@ -370,7 +370,7 @@ def test_Detect_cv3(device, input_tensor, c1, c2, k, reg_max, idx):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [([torch.rand((2, 192, 40, 40)), torch.rand((2, 384, 20, 20)), torch.rand((2, 576, 10, 10))])],
+    [([torch.rand((8, 192, 40, 40)), torch.rand((8, 384, 20, 20)), torch.rand((8, 576, 10, 10))])],
     ids=["input_tensor1"],
 )
 def test_last_detect(device, input_tensor):
