@@ -69,7 +69,13 @@ def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
         c_xy = ttnn.add(x1y1, x2y2, memory_config=ttnn.L1_MEMORY_CONFIG)
         c_xy = ttnn.div(c_xy, 2, memory_config=ttnn.L1_MEMORY_CONFIG)
         wh = ttnn.subtract(x2y2, x1y1, memory_config=ttnn.L1_MEMORY_CONFIG)
-        return ttnn.concat([c_xy, wh], 1, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+        c_xy = ttnn.to_layout(c_xy, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        wh = ttnn.to_layout(wh, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+        result = ttnn.concat((c_xy, wh), dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
+        result = ttnn.to_layout(result, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        return result
 
 
 def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
