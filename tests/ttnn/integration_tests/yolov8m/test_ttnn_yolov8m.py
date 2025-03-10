@@ -255,7 +255,7 @@ def test_Conv(device, input_tensor):
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
-@pytest.mark.parametrize("input_tensor", [(torch.rand((2, 96, 80, 80)))], ids=["input_tensor1"])
+@pytest.mark.parametrize("input_tensor", [(torch.rand((8, 96, 80, 80)))], ids=["input_tensor1"])
 def test_C2f(device, input_tensor):
     disable_persistent_kernel_cache()
 

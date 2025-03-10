@@ -52,12 +52,7 @@ def make_anchors(device, feats, strides, grid_cell_offset=0.5):
 
 
 def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
-    distance = ttnn.to_layout(distance, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    # lt, rb = ttnn.split(distance, 2, 1, memory_config=ttnn.L1_MEMORY_CONFIG)  # if done in tile : tt-metal issue #17017
-
-    a, b, c = distance.shape
-    lt = ttnn.slice(distance, [0, 0, 0], [a, b // 2, c], memory_config=ttnn.L1_MEMORY_CONFIG)
-    rb = ttnn.slice(distance, [0, b // 2, 0], [a, b, c], memory_config=ttnn.L1_MEMORY_CONFIG)
+    lt, rb = ttnn.split(distance, 2, 1, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     lt = ttnn.to_layout(lt, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     rb = ttnn.to_layout(rb, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
@@ -70,12 +65,7 @@ def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
         c_xy = ttnn.div(c_xy, 2, memory_config=ttnn.L1_MEMORY_CONFIG)
         wh = ttnn.subtract(x2y2, x1y1, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-        # Concat in tile with bs 8 is throwing error
-        c_xy = ttnn.to_layout(c_xy, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-        wh = ttnn.to_layout(wh, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-
         result = ttnn.concat((c_xy, wh), dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
-        result = ttnn.to_layout(result, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
         return result
 
 
@@ -237,22 +227,6 @@ def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
     for i in range(len(input_tensors)):
         out_shard_width += input_tensors[i].shape[-1]
         input_tensors[i] = ttnn.to_memory_config(input_tensors[i], input_sharded_memory_config[i])
-
-    # in_shard_width = input_tensors[1].shape[-1]
-    # shard_height = (input_tensors[1].shape[2] + num_cores - 1) // num_cores
-    # memory_config = ttnn.create_sharded_memory_config(
-    #     (shard_height, in_shard_width),
-    #     core_grid=shard_grid,
-    #     strategy=ttnn.ShardStrategy.HEIGHT,
-    #     use_height_and_width_as_shard_shape=True,
-    # )
-    # input_sharded_memory_config.append(memory_config)
-
-    # input_tensors[1] = ttnn.to_memory_config(input_tensors[1], input_sharded_memory_config[0])
-
-    # out_shard_width = 0
-    # for i in range(len(input_tensors)):
-    #     out_shard_width += input_tensors[i].shape[-1]
 
     output_sharded_memory_config = ttnn.create_sharded_memory_config(
         (shard_height, out_shard_width),

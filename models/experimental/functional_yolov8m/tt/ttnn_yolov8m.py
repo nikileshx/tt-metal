@@ -218,7 +218,10 @@ def c2f(
         block_shard=block_shard,
     )
 
-    cv1 = ttnn.to_layout(cv1, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    if concat_flag:
+        cv1 = ttnn.to_layout(
+            cv1, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG
+        )  # OOM issue if Tile layout
 
     y = []
     bs, h, w, c = cv1.shape
@@ -227,7 +230,7 @@ def c2f(
 
     ttnn.deallocate(cv1)
 
-    to_tile = True
+    to_tile = True if concat_flag else False
 
     for i in range(n):
         z = Bottleneck(
@@ -251,13 +254,9 @@ def c2f(
         y.append(z)
         to_tile = False
 
-    if not concat_flag:
-        y[0] = ttnn.to_layout(y[0], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-        y[1] = ttnn.to_layout(y[1], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-
     if not shortcut:
         for i in range(2, len(y)):
-            y[i] = ttnn.sharded_to_interleaved(y[i], ttnn.L1_MEMORY_CONFIG)
+            y[i] = ttnn.sharded_to_interleaved(y[i], memory_config=ttnn.L1_MEMORY_CONFIG)
 
     if concat_flag:
         for i in range(2, len(y)):
@@ -454,12 +453,7 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True, batch_size=1
 
     cls = ttnn.sigmoid(cls, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    cls = ttnn.to_layout(cls, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    dbox = ttnn.to_layout(dbox, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-
     return [ttnn.concat((dbox, cls), dim=1, memory_config=ttnn.L1_MEMORY_CONFIG), x]
-
-    # return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]  # oup memory config as ttnn.L1 affects bounding boxes
 
 
 def DetectionModel(device, x, parameters, res, batch_size):
