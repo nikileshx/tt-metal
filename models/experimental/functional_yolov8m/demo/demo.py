@@ -101,6 +101,8 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
     [
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "torch_model"),
         ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/laptop.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/laptop.jpg", "tt_model"),
     ],
 )
 def test_demo(device, source, model_type):
