@@ -13,7 +13,8 @@ ttnn::Tensor ExecuteUpSample::invoke(
     std::variant<int, tt::tt_metal::Array2D> scale_factor,
     const std::string& mode,
     const std::optional<MemoryConfig>& output_mem_config,
-    const std::optional<DeviceComputeKernelConfig>& compute_kernel_config) {
+    const std::optional<DeviceComputeKernelConfig>& compute_kernel_config,
+    const std::optional<bool>& conv_out_shape) {
     MemoryConfig mem_config = output_mem_config.value_or(input_tensor.memory_config());
     ttnn::DeviceComputeKernelConfig config = compute_kernel_config.value_or(
         ttnn::init_device_compute_kernel_config(input_tensor.device()->arch(), std::nullopt, MathFidelity::HiFi4));
@@ -35,6 +36,11 @@ ttnn::Tensor ExecuteUpSample::invoke(
             }
         },
         scale_factor);
+
+    if (conv_out_shape == true) {
+        scale_w = scale_h * scale_w;
+        scale_h = 1;
+    }
 
     // DEBUG
     // fmt::print("scale_h: {}, scale_w: {}\n", scale_h, scale_w);

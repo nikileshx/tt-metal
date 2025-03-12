@@ -52,8 +52,8 @@ std::vector<TensorSpec> UpSample::compute_output_specs(const std::vector<Tensor>
     const auto input_shape = input.get_logical_shape();
 
     uint32_t out_n = input_shape[0];
-    uint32_t out_h = input_shape[1] * scale_factor_h_;
-    uint32_t out_w = input_shape[2] * scale_factor_w_;
+    uint32_t out_h = input_shape[1] * 1;
+    uint32_t out_w = input_shape[2] * scale_factor_h_ * scale_factor_w_;
     uint32_t out_c = input_shape[3];
 
     auto output_shape = ttnn::Shape({out_n, out_h, out_w, out_c});

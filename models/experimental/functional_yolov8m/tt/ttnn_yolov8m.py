@@ -559,15 +559,18 @@ def DetectionModel(device, x, parameters, res, batch_size):
     nine = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
+    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG, conv_out_shape=False)
 
-    inp_h, inp_w = x.shape[1], x.shape[2]
+    # inp_h, inp_w = x.shape[1], x.shape[2]
+    inp_h, inp_w = out_h * 2, out_w * 2
 
-    x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x = ttnn.concat([x, six], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = ttnn.reshape(x, (batch_size, inp_h, inp_w, x.shape[-1]))
 
     ttnn.deallocate(six)
 
@@ -589,14 +592,17 @@ def DetectionModel(device, x, parameters, res, batch_size):
     twelve = ttnn.clone(x, dtype=ttnn.bfloat16, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    inp_h, inp_w = x.shape[1], x.shape[2]
+    # inp_h, inp_w = x.shape[1], x.shape[2]
+    inp_h, inp_w = out_h * 2, out_w * 2
 
-    x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.concat([x, four], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    # x = ttnn.reshape(x, (batch_size, inp_h, inp_w, x.shape[-1]))
     ttnn.deallocate(four)
 
     x, out_h, out_w = c2f(device, x, parameters, "model.15", inp_h, inp_w, n=2, shortcut=False, batch_size=batch_size)
