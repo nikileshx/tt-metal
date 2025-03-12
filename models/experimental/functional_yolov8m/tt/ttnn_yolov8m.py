@@ -389,18 +389,7 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True):
 
     shape = x[0].shape
 
-    if format != "imx" and (dynamic or self_shape != shape):
-        temp = ttnn_make_anchors(device, x, stride, 0.5)
-        ls = []
-        for i in temp:
-            i = ttnn.sharded_to_interleaved(i, ttnn.L1_MEMORY_CONFIG)
-            i = ttnn.to_layout(i, ttnn.ROW_MAJOR_LAYOUT)
-            i = ttnn.permute(i, (1, 0))
-            ls.append(i)
-
-        anchors, strides = ls[0], ls[1]
-        anchors = ttnn.reshape(anchors, (-1, anchors.shape[0], anchors.shape[1]))
-        self_shape = shape
+    anchors, strides = parameters["anchors"], parameters["strides"]
 
     xi = []
     for i in x:
