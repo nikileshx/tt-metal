@@ -148,12 +148,6 @@ def Bottleneck(
         output_layout=output_layout,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-
-    cv1 = ttnn.sharded_to_interleaved(cv1, ttnn.L1_MEMORY_CONFIG)
-    cv1 = ttnn.to_layout(cv1, ttnn.ROW_MAJOR_LAYOUT)
-    cv1 = ttnn.reshape(cv1, (1, out_h, out_w, cv1.shape[-1]))
-
     cv2, out_h, out_w = conv(
         device,
         cv1,
@@ -170,12 +164,12 @@ def Bottleneck(
 
     ttnn.deallocate(cv1)
 
-    cv2 = ttnn.sharded_to_interleaved(cv2, ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
+    if tilize:
+        x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     add = shortcut
 
-    return x + cv2 if add else cv2
+    return ttnn.add(x, cv2, memory_config=ttnn.L1_MEMORY_CONFIG) if add else cv2
 
 
 def c2f(
@@ -217,6 +211,8 @@ def c2f(
     y = list(ttnn.split(cv1, 2, 3, memory_config=ttnn.L1_MEMORY_CONFIG))
     ttnn.deallocate(cv1)
 
+    to_tile = True
+
     for i in range(n):
         z = Bottleneck(
             device,
@@ -232,8 +228,10 @@ def c2f(
             act_block_h=act_block_h,
             change_shard=change_shard,
             deallocate_activation=deallocate_activation,
+            tilize=to_tile,
         )
         y.append(z)
+        to_tile = False
 
     y[0] = ttnn.to_layout(y[0], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     y[1] = ttnn.to_layout(y[1], layout=ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
