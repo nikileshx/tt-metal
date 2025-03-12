@@ -354,15 +354,10 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True):
     nl = len(ch)
     reg_max = 16
     no = nc + reg_max * 4
-    dynamic = False
-    format = None
-    self_shape = None
-
-    stride = [8.0, 16.0, 32.0]
 
     for i in range(nl):
         inp_h = inp_w = int(math.sqrt(x[i].shape[2]))
-        a, out_h, out_w = Detect_cv2(
+        a = Detect_cv2(
             device,
             x[i],
             parameters,
@@ -371,8 +366,8 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True):
             inp_w=inp_w,
             k=3,
             reg_max=4 * reg_max,
-        )
-        b, out_h, out_w = Detect_cv2(
+        )[0]
+        b = Detect_cv2(
             device,
             x[i],
             parameters,
@@ -382,10 +377,8 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True):
             k=3,
             reg_max=nc,
             bfloat8=bfloat8,
-        )
-        a = ttnn.reshape(a, (1, out_h, out_w, a.shape[-1]))
-        b = ttnn.reshape(b, (1, out_h, out_w, b.shape[-1]))
-        x[i] = ttnn.concat((a, b), dim=3)
+        )[0]
+        x[i] = ttnn.concat((a, b), dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
 
     shape = x[0].shape
 
@@ -393,28 +386,22 @@ def Detect(device, x, parameters, path, nc=80, ch=(), bfloat8=True):
 
     xi = []
     for i in x:
-        i = ttnn.sharded_to_interleaved(i, ttnn.L1_MEMORY_CONFIG)
-        i = ttnn.to_layout(i, ttnn.ROW_MAJOR_LAYOUT)
-        i = ttnn.permute(i, (0, 3, 1, 2))
-        i = ttnn.reshape(i, (shape[0], no, -1))
-        i = ttnn.to_layout(i, ttnn.TILE_LAYOUT)
+        i = ttnn.reshape(i, (shape[0], -1, no), memory_config=ttnn.L1_MEMORY_CONFIG)
         xi.append(i)
 
-    x_cat = ttnn.concat(xi, 2)
+    x_cat = ttnn.concat(xi, 1, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    box = ttnn.slice(x_cat, [0, 0, 0], [1, 64, x_cat.shape[2]])
-    cls = ttnn.slice(x_cat, [0, 64, 0], [1, 144, x_cat.shape[2]])
+    x_cat = ttnn.permute(x_cat, (0, 2, 1), memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    box = ttnn.slice(x_cat, [0, 0, 0], [1, 64, x_cat.shape[2]], memory_config=ttnn.L1_MEMORY_CONFIG)
+    cls = ttnn.slice(x_cat, [0, 64, 0], [1, 144, x_cat.shape[2]], memory_config=ttnn.L1_MEMORY_CONFIG)
 
     dfl = DFL(device, box, parameters, f"{path}.dfl")
 
-    anchors = ttnn.to_layout(anchors, ttnn.TILE_LAYOUT)
-    strides = ttnn.to_layout(strides, ttnn.TILE_LAYOUT)
-
     dbox = ttnn_decode_bboxes(device, dfl, anchors)
-
     dbox = dbox * strides
 
-    return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]
+    return [ttnn.concat((dbox, ttnn.sigmoid(cls)), dim=1), x]  # oup memory config as ttnn.L1 affects bounding boxes
 
 
 def DetectionModel(device, x, parameters, res):
