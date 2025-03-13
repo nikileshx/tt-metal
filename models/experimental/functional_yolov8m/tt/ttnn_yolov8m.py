@@ -560,7 +560,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     # x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG, conv_out_shape=False)
+    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG, compute_shape=(8, 10, 10, 576))
 
     # inp_h, inp_w = x.shape[1], x.shape[2]
     inp_h, inp_w = out_h * 2, out_w * 2
@@ -593,7 +593,8 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     # x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG, compute_shape=(8, 20, 20, 384))
+    # x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     # inp_h, inp_w = x.shape[1], x.shape[2]
     inp_h, inp_w = out_h * 2, out_w * 2

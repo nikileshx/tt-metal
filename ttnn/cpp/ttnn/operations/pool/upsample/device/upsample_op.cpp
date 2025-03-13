@@ -52,8 +52,17 @@ std::vector<TensorSpec> UpSample::compute_output_specs(const std::vector<Tensor>
     const auto input_shape = input.get_logical_shape();
 
     uint32_t out_n = input_shape[0];
-    uint32_t out_h = input_shape[1] * 1;
-    uint32_t out_w = input_shape[2] * scale_factor_h_ * scale_factor_w_;
+    uint32_t out_h, out_w;
+
+    if (computation_shape == input_shape) {
+        // Calculate different output shape if conv_out_shape is true
+        out_h = input_shape[1] * scale_factor_h_;
+        out_w = input_shape[2] * scale_factor_w_;
+    } else {
+        out_h = input_shape[1];
+        out_w = input_shape[2] * scale_factor_w_ * scale_factor_h_;
+    }
+
     uint32_t out_c = input_shape[3];
 
     auto output_shape = ttnn::Shape({out_n, out_h, out_w, out_c});
@@ -113,12 +122,13 @@ operation::ProgramWithCallbacks UpSample::create_program(
             }
         case UpSampleParallelizationStrategy::SINGLE_CORE:
             if (mode_ == "nearest") {
-                return upsample_single_core(input_tensor_0, output_tensor_0, scale_factor_h_, scale_factor_w_);
+                return upsample_single_core(
+                    input_tensor_0, output_tensor_0, scale_factor_h_, scale_factor_w_, computation_shape);
             } else {
                 TT_THROW("Unsupported mode");
             }
     };
-    return upsample_single_core(input_tensor_0, output_tensor_0, scale_factor_h_, scale_factor_w_);
+    return upsample_single_core(input_tensor_0, output_tensor_0, scale_factor_h_, scale_factor_w_, computation_shape);
 }
 
 UpSampleParallelizationStrategy UpSample::get_parallelization_strategy(const std::vector<Tensor>& input_tensors) const {

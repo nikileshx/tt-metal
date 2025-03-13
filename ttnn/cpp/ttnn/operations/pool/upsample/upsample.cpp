@@ -14,10 +14,22 @@ ttnn::Tensor ExecuteUpSample::invoke(
     const std::string& mode,
     const std::optional<MemoryConfig>& output_mem_config,
     const std::optional<DeviceComputeKernelConfig>& compute_kernel_config,
-    const std::optional<bool>& conv_out_shape) {
+    const std::optional<ttnn::Shape>& compute_shape) {
     MemoryConfig mem_config = output_mem_config.value_or(input_tensor.memory_config());
     ttnn::DeviceComputeKernelConfig config = compute_kernel_config.value_or(
         ttnn::init_device_compute_kernel_config(input_tensor.device()->arch(), std::nullopt, MathFidelity::HiFi4));
+
+    auto computation_shape = input_tensor.get_logical_shape();
+
+    if (compute_shape.has_value()) {
+        const auto& shape = compute_shape.value();
+        TT_FATAL(shape.rank() == 4, "Invalid Compute shape, expected rank 4 but got rank {}", shape.rank());
+        computation_shape = shape;
+
+        TT_FATAL(
+            computation_shape.volume() == input_tensor.get_logical_shape().volume(),
+            "Input and output volumes must match");
+    }
 
     int scale_h = 1;
     int scale_w = 1;
@@ -37,11 +49,6 @@ ttnn::Tensor ExecuteUpSample::invoke(
         },
         scale_factor);
 
-    if (conv_out_shape == true) {
-        scale_w = scale_h * scale_w;
-        scale_h = 1;
-    }
-
     // DEBUG
     // fmt::print("scale_h: {}, scale_w: {}\n", scale_h, scale_w);
 
@@ -59,8 +66,9 @@ ttnn::Tensor ExecuteUpSample::invoke(
     }
 
     // return ttnn::upsample(input_tensor, scale_h, scale_w, mem_config);
-    auto output_tensor =
-        tt::tt_metal::operation::run(UpSample{scale_h, scale_w, mode, mem_config, config}, {input_tensor}).front();
+    auto output_tensor = tt::tt_metal::operation::run(
+                             UpSample{scale_h, scale_w, computation_shape, mode, mem_config, config}, {input_tensor})
+                             .front();
     return output_tensor;
 }
 

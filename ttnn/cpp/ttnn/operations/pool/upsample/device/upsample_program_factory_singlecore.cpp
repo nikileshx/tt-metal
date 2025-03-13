@@ -21,7 +21,11 @@ using namespace tt::tt_metal;
 namespace ttnn::operations::upsample {
 using namespace tt;
 operation::ProgramWithCallbacks upsample_single_core(
-    const Tensor& input, Tensor& output, const uint32_t scale_factor_h, const uint32_t scale_factor_w) {
+    const Tensor& input,
+    Tensor& output,
+    const uint32_t scale_factor_h,
+    const uint32_t scale_factor_w,
+    const ttnn::Shape computation_shape) {
     Program program{};
     CoreRange core({0, 0}, {0, 0});
 
@@ -33,7 +37,6 @@ operation::ProgramWithCallbacks upsample_single_core(
     uint32_t output_num_units = output.volume() / output.get_padded_shape()[-1];  // N*H*W for outout
     uint32_t input_num_units = input.volume() / input.get_padded_shape()[-1];     // N*H*W for input
 
-    auto output_shape = output.get_padded_shape();
     // This should allocate a DRAM buffer on the device
     tt_metal::IDevice* device = output.device();
 
@@ -86,26 +89,51 @@ operation::ProgramWithCallbacks upsample_single_core(
         core,
         tt_metal::ReaderDataMovementConfig(reader_compile_time_args, kernel_defines));
 
-    tt_metal::KernelHandle unary_writer_kernel_id = tt_metal::CreateKernel(
-        program,
-        "ttnn/cpp/ttnn/operations/pool/upsample/device/kernels/dataflow/"
-        "writer_upsample_unary_stick_layout_interleaved_start_id.cpp",
-        core,
-        tt_metal::WriterDataMovementConfig(writer_compile_time_args, kernel_defines));
-
     SetRuntimeArgs(program, unary_reader_kernel_id, core, {src_buffer->address(), input_unit_size, input_num_units});
 
-    SetRuntimeArgs(
-        program,
-        unary_writer_kernel_id,
-        core,
-        {dst_buffer->address(),
-         input_unit_size,
-         input_num_units,
-         (uint32_t)scale_factor_h,
-         (uint32_t)scale_factor_w,
-         (uint32_t)output_shape[1],
-         (uint32_t)output_shape[2]});
+    tt_metal::KernelHandle unary_writer_kernel_id;
+    if (computation_shape != input.get_logical_shape()) {
+        unary_writer_kernel_id = tt_metal::CreateKernel(
+            program,
+            "ttnn/cpp/ttnn/operations/pool/upsample/device/kernels/dataflow/"
+            "writer_upsample_unary_stick_layout_interleaved_start_id.cpp",
+            core,
+            tt_metal::WriterDataMovementConfig(writer_compile_time_args, kernel_defines));
+
+        SetRuntimeArgs(
+            program,
+            unary_writer_kernel_id,
+            core,
+            {dst_buffer->address(),
+             input_unit_size,
+             input_num_units,
+             (uint32_t)scale_factor_h,
+             (uint32_t)scale_factor_w,
+             (uint32_t)computation_shape[1] * scale_factor_h,
+             (uint32_t)computation_shape[2] * scale_factor_w});
+
+    } else {
+        auto output_shape = output.get_padded_shape();
+
+        unary_writer_kernel_id = tt_metal::CreateKernel(
+            program,
+            "ttnn/cpp/ttnn/operations/pool/upsample/device/kernels/dataflow/"
+            "writer_upsample_unary_stick_layout_interleaved_start_id.cpp",
+            core,
+            tt_metal::WriterDataMovementConfig(writer_compile_time_args, kernel_defines));
+
+        SetRuntimeArgs(
+            program,
+            unary_writer_kernel_id,
+            core,
+            {dst_buffer->address(),
+             input_unit_size,
+             input_num_units,
+             (uint32_t)scale_factor_h,
+             (uint32_t)scale_factor_w,
+             (uint32_t)output_shape[1],
+             (uint32_t)output_shape[2]});
+    }
 
     auto override_runtime_args_callback = [unary_reader_kernel_id, unary_writer_kernel_id](
                                               const void* operation,
