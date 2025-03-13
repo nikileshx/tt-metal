@@ -103,8 +103,8 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
         ("models/experimental/functional_yolov8m/demo/images/", "tt_model"),
     ],
 )
-@pytest.mark.parametrize("res", [(320, 320)])
-@pytest.mark.parametrize("batch_size", [8])
+@pytest.mark.parametrize("res", [(224, 224)])
+@pytest.mark.parametrize("batch_size", [14])
 def test_demo(device, source, model_type, res, batch_size):
     disable_persistent_kernel_cache()
 
@@ -114,7 +114,7 @@ def test_demo(device, source, model_type, res, batch_size):
     else:
         state_dict = attempt_load("yolov8m.pt", map_location="cpu").state_dict()
         parameters = custom_preprocessor(device, state_dict, inp_h=res[0], inp_w=res[1])
-        model = partial(YOLOv8m, device=device, parameters=parameters, batch_size=batch_size)
+        model = partial(YOLOv8m, device=device, parameters=parameters, batch_size=batch_size, res=res)
         logger.info("Inferencing using ttnn Model")
 
     save_dir = "models/experimental/functional_yolov8m/demo/runs"
