@@ -216,6 +216,10 @@ def custom_preprocessor(device, state_dict, inp_h=320, inp_w=320):
     return parameters
 
 
+def min_multiple_of_32(n):
+    return (n + 31) // 32 * 32
+
+
 def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
     input_sharded_memory_config = []
 
@@ -224,6 +228,7 @@ def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
     for i in range(len(input_tensors)):
         in_shard_width = input_tensors[i].shape[-1]
         shard_height = (input_tensors[i].shape[2] + num_cores - 1) // num_cores
+
         memory_config = ttnn.create_sharded_memory_config(
             (shard_height, in_shard_width),
             core_grid=shard_grid,
@@ -264,3 +269,23 @@ def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
     output = ttnn.sharded_to_interleaved(output, ttnn.L1_MEMORY_CONFIG)
 
     return output
+
+
+def compare_tensors(tensor1, tensor2, tolerance=1e-4):
+    if tensor1.shape != tensor2.shape:
+        raise ValueError("Tensors must have the same shape")
+
+    matches = torch.isclose(tensor1, tensor2, atol=tolerance)
+    match_percentage = matches.float().mean().item() * 100
+    non_match_percentage = 100 - match_percentage
+
+    mse = torch.mean((tensor1 - tensor2) ** 2).item()
+    mae = torch.mean(torch.abs(tensor1 - tensor2)).item()
+
+    return {
+        "tolerance": tolerance,
+        "match_percentage": match_percentage,
+        "non_match_percentage": non_match_percentage,
+        "mean_squared_diff": mse,
+        "mean_abs_diff": mae,
+    }
