@@ -6,6 +6,7 @@ on:
   pull_request:
     branches:
       - "main"
+  merge_group:
 
 jobs:
   pre-commit:
@@ -67,6 +68,19 @@ jobs:
         run: sudo apt-get install -y aspell
       - name: Run checks on docs
         run: TT_METAL_HOME=$(pwd) docs/spellcheck.sh
+  check-docs-links:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          clean: false
+      - name: Link Checker
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --verbose './README.md' './INSTALLING.md'  './docs/source/**/*.rst' './docs/source/**/*.md'
+          fail: true
   check-forbidden-imports:
     runs-on: ubuntu-latest
     steps:
@@ -89,22 +103,35 @@ jobs:
           pip install pyyaml
           python tests/sweep_framework/framework/sweeps_workflow_verification.py
   cmake-version:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
       with:
         submodules: recursive
+    - name: Look for changed CMake files
+      id: changed-files-list
+      uses: jitterbit/get-changed-files@b17fbb00bdc0c0f63fcf166580804b4d2cdc2a42
+      with:
+        format: 'json'
     - name: Check for changed CMake files
       id: changed-cmake-files
-      uses: tj-actions/changed-files@c3a1bb2c992d77180ae65be6ae6c166cf40f857c
-      with:
-        files: |
-          **/*.cmake
-          **/CMakeLists.txt
+      run: |
+        # Parse the JSON and check for changes in .cmake or CMakeLists.txt
+        cmake_changed=false
+        # Loop through the files and check for CMake files
+        readarray -t changed_files <<<"$(jq -r '.[]' <<<'${{ steps.changed-files-list.outputs.all }}')"
+        for file in ${changed_files[@]}; do
+          if [[ "$file" == *.cmake || "$file" == *CMakeLists.txt ]]; then
+            cmake_changed=true
+            break
+          fi
+        done
+        # Set output for the next steps
+        echo "any_changed=$cmake_changed" >> $GITHUB_OUTPUT
     - uses: lukka/get-cmake@b516803a3c5fac40e2e922349d15cdebdba01e60
       if: steps.changed-cmake-files.outputs.any_changed == 'true'
       with:
-        cmakeVersion: "~3.18.0"
+        cmakeVersion: "~3.24.0"
     - name: Check CMake version
       if: steps.changed-cmake-files.outputs.any_changed == 'true'
       run: cmake --version
@@ -119,5 +146,4 @@ jobs:
       # TODO: Use a lukka/run-cmake with a preset after upgrading to a more modern CMake
       run: |
         echo "Checking compatibility with $(cmake --version)"
-        # FIXME: Why is HAVE_STD_REGEX needed? Clean up when we solve it.
-        cmake -DCMAKE_TOOLCHAIN_FILE=cmake/x86_64-linux-clang-17-libcpp-toolchain.cmake -DHAVE_STD_REGEX=ON -B build .
+        cmake -D BUILD_PROGRAMMING_EXAMPLES=ON -D TT_METAL_BUILD_TESTS=ON -B build .

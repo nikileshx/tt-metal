@@ -29,7 +29,6 @@
 #include "noc_overlay_parameters.h"
 #include "noc_parameters.h"
 #include "noc_nonblocking_api.h"
-#include "hostdevcommon/common_runtime_address_map.h"
 #ifndef ARCH_GRAYSKULL
 #include "eth_l1_address_map.h"
 #endif
@@ -198,8 +197,12 @@ inline uint16_t debug_valid_eth_addr(uint64_t addr, uint64_t len, bool write) {
     if (addr + len > MEM_ETH_BASE + MEM_ETH_SIZE) {
         return DebugSanitizeNocAddrOverflow;
     }
+    constexpr uint64_t mem_mailbox_end = MEM_IERISC_MAILBOX_END < eth_l1_mem::address_map::ERISC_MEM_MAILBOX_END
+                                             ? MEM_IERISC_MAILBOX_END
+                                             : eth_l1_mem::address_map::ERISC_MEM_MAILBOX_END;
+
 #if !defined(DISPATCH_KERNEL) || (DISPATCH_KERNEL == 0)
-    if (write && (addr < eth_l1_mem::address_map::ERISC_MEM_MAILBOX_END)) {
+    if (write && (addr < mem_mailbox_end)) {
         return DebugSanitizeNocAddrMailbox;
     }
 #endif
@@ -239,7 +242,7 @@ inline void debug_sanitize_post_noc_addr_and_hang(
 #if defined(COMPILE_FOR_ERISC)
     // Update launch msg to show that we've exited. This is required so that the next run doesn't think there's a kernel
     // still running and try to make it exit.
-    tt_l1_ptr go_msg_t* go_message_ptr = GET_MAILBOX_ADDRESS_DEV(go_message);
+    volatile tt_l1_ptr go_msg_t* go_message_ptr = GET_MAILBOX_ADDRESS_DEV(go_message);
     go_message_ptr->signal = RUN_MSG_DONE;
 
     // For erisc, we can't hang the kernel/fw, because the core doesn't get restarted when a new

@@ -76,6 +76,7 @@ ub_runtime_packages()
 {
     UB_RUNTIME_LIST=(\
      python3-pip \
+     python3-venv \
      libhwloc-dev \
      libnuma-dev \
      libc++-17-dev \
@@ -89,8 +90,10 @@ ub_buildtime_packages()
      git \
      python3-dev \
      pkg-config \
+     cargo \
      cmake \
      ninja-build \
+     libboost-dev \
      libhwloc-dev \
      libc++-17-dev \
      libc++abi-17-dev \

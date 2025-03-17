@@ -14,7 +14,7 @@
 namespace ttnn::operations::reduction {
 
 ttnn::Tensor SamplingOperation::invoke(
-    uint8_t queue_id,
+    QueueId queue_id,
     const Tensor& input_values_tensor,
     const Tensor& input_indices_tensor,
     const std::vector<uint16_t>& k,
@@ -22,7 +22,7 @@ ttnn::Tensor SamplingOperation::invoke(
     const uint32_t seed,
     const std::optional<CoreRangeSet>& sub_core_grids,
     std::optional<Tensor> optional_output_tensor) {
-    return operation::run(
+    return tt::tt_metal::operation::run(
                Sampling{k, p, seed, sub_core_grids},
                {input_values_tensor, input_indices_tensor},
                {},

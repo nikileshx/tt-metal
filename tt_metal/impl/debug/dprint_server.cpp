@@ -22,10 +22,13 @@
 #include "dprint_server.hpp"
 #include "debug_helpers.hpp"
 #include <rtoptions.hpp>
-#include <bfloat8.hpp>
+
+#include <tt-metalium/bfloat8.hpp>
+#include <tt-metalium/blockfloat_common.hpp>
+#include <tt-metalium/device.hpp>
 
 #include "hostdevcommon/dprint_common.h"
-#include <device.hpp>
+#include "hostdevcommon/kernel_structs.h"
 
 using std::cout;
 using std::endl;

@@ -5,9 +5,11 @@
 #include "debug_tools_fixture.hpp"
 #include "debug_tools_test_utils.hpp"
 #include "llrt.hpp"
+
 #include <tt-metalium/tt_metal.hpp>
 #include <tt-metalium/host_api.hpp>
 #include <tt-metalium/bfloat16.hpp>
+#include <tt-metalium/allocator.hpp>
 
 // Do we really want to expose Hal like this?
 // This looks like an API level test
@@ -63,8 +65,10 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
     auto output_l1_buffer = CreateBuffer(l1_config);
     uint32_t output_l1_buffer_addr = output_l1_buffer->address();
 
-    auto input_buf_noc_xy = device->worker_core_from_logical_core(input_l1_buffer->logical_core_from_bank_id(0));
-    auto output_buf_noc_xy = device->worker_core_from_logical_core(output_l1_buffer->logical_core_from_bank_id(0));
+    auto input_buf_noc_xy =
+        device->worker_core_from_logical_core(input_l1_buffer->allocator()->get_logical_core_from_bank_id(0));
+    auto output_buf_noc_xy =
+        device->worker_core_from_logical_core(output_l1_buffer->allocator()->get_logical_core_from_bank_id(0));
     log_info("Input DRAM: {}", input_buf_noc_xy);
     log_info("Output DRAM: {}", output_buf_noc_xy);
 
@@ -118,9 +122,13 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
         case SanitizeZeroL1Write: output_l1_buffer_addr = 0; break;
         case SanitizeMailboxWrite:
             // This is illegal because we'd be writing to the mailbox memory
-            l1_buffer_addr = hal.get_dev_addr(
-                (is_eth_core) ? HalProgrammableCoreType::ACTIVE_ETH : HalProgrammableCoreType::TENSIX,
-                HalL1MemAddrType::MAILBOX);
+            if (is_eth_core) {
+                l1_buffer_addr = std::min(
+                    hal.get_dev_addr(HalProgrammableCoreType::ACTIVE_ETH, HalL1MemAddrType::MAILBOX),
+                    hal.get_dev_addr(HalProgrammableCoreType::IDLE_ETH, HalL1MemAddrType::MAILBOX));
+            } else {
+                l1_buffer_addr = hal.get_dev_addr(HalProgrammableCoreType::TENSIX, HalL1MemAddrType::MAILBOX);
+            }
             break;
         default:
             log_warning(LogTest, "Unrecognized feature to test ({}), skipping...", feature);
@@ -167,7 +175,7 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
                 "bytes from local L1[{:#08x}] to Unknown core w/ virtual coords {} [addr=0x{:08x}] (NOC target "
                 "address did not map to any known Tensix/Ethernet/DRAM/PCIE core).",
                 device->id(),
-                (is_eth_core) ? "ethnet" : "worker",
+                (is_eth_core) ? "active ethnet" : "worker",
                 core.x,
                 core.y,
                 virtual_core.x,
@@ -184,7 +192,7 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
                 "bytes from local L1[{:#08x}] to Tensix core w/ virtual coords {} L1[addr=0x{:08x}] (invalid address "
                 "alignment in NOC transaction).",
                 device->id(),
-                (is_eth_core) ? "ethnet" : "worker",
+                (is_eth_core) ? "active ethnet" : "worker",
                 core.x,
                 core.y,
                 virtual_core.x,
@@ -203,7 +211,7 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
                 "bytes to local L1[{:#08x}] from Tensix core w/ virtual coords {} L1[addr=0x{:08x}] (invalid address "
                 "alignment in NOC transaction).",
                 device->id(),
-                (is_eth_core) ? "ethnet" : "worker",
+                (is_eth_core) ? "active ethnet" : "worker",
                 core.x,
                 core.y,
                 virtual_core.x,
@@ -221,7 +229,7 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
                 "bytes from local L1[{:#08x}] to Tensix core w/ virtual coords {} L1[addr=0x{:08x}] (NOC target "
                 "overwrites mailboxes).",
                 device->id(),
-                (is_eth_core) ? "ethnet" : "worker",
+                (is_eth_core) ? "active ethnet" : "worker",
                 core.x,
                 core.y,
                 virtual_core.x,
@@ -239,7 +247,7 @@ void RunTestOnCore(WatcherFixture* fixture, IDevice* device, CoreCoord &core, bo
                 "bytes to local L1[{:#08x}] from Tensix core w/ virtual coords {} L1[addr=0x{:08x}] (Local L1 "
                 "overwrites mailboxes).",
                 device->id(),
-                (is_eth_core) ? "ethnet" : "worker",
+                (is_eth_core) ? "active ethnet" : "worker",
                 core.x,
                 core.y,
                 virtual_core.x,

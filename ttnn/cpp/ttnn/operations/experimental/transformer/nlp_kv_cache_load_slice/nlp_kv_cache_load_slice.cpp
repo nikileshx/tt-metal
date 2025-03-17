@@ -12,7 +12,7 @@
 namespace ttnn::operations::experimental::transformer {
 
 ttnn::Tensor NLPKVCacheLoadSliceOperation::invoke(
-    uint8_t queue_id,
+    QueueId queue_id,
     const Tensor& input_tensor,
     const uint32_t seq_len_start,
     const uint32_t seq_len_end,
@@ -43,7 +43,7 @@ ttnn::Tensor NLPKVCacheLoadSliceOperation::invoke(
         output_tensor_end[2] - output_tensor_start[2] + 1,
         output_tensor_end[3] - output_tensor_start[3] + 1,
     });
-    return operation::run(
+    return tt::tt_metal::operation::run(
                NlpKVCacheLoadSliceDeviceOperation{
                    output_tensor_start, output_tensor_end, output_tensor_shape, input_tensor_shape},
                {input_tensor},

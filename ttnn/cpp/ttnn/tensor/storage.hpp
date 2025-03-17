@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <memory>
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/tensor/tensor_spec.hpp"
 
@@ -187,19 +188,19 @@ struct MultiDeviceHostStorage {
 
     OwnedBuffer get_buffer(int buffer_index) const {
         std::lock_guard<std::mutex> lock(mtx);
-        TT_ASSERT(buffer_index < buffers.size(), "Buffer not found for buffer_index {}", buffer_index);
+        TT_FATAL(buffer_index < buffers.size(), "Buffer not found for buffer_index {}", buffer_index);
         return buffers[buffer_index];
     }
 
     OwnedBuffer& get_buffer(int buffer_index) {
         std::lock_guard<std::mutex> lock(mtx);
-        TT_ASSERT(buffer_index < buffers.size(), "Buffer not found for buffer_index {}", buffer_index);
+        TT_FATAL(buffer_index < buffers.size(), "Buffer not found for buffer_index {}", buffer_index);
         return buffers[buffer_index];
     }
 
     TensorSpec get_tensor_spec(int spec_index) const {
         std::lock_guard<std::mutex> lock(mtx);
-        TT_ASSERT(spec_index < specs.size(), "Buffer not found for device {}", spec_index);
+        TT_FATAL(spec_index < specs.size(), "Spec for device {} not found in spec list", spec_index);
         return specs[spec_index];
     }
 
@@ -243,6 +244,7 @@ struct MultiDeviceStorage {
         swap(first.mesh_buffer, second.mesh_buffer);
     }
 
+    // Constructs a multi-device tensor backed by a collection of heterogeneous single-device buffers.
     MultiDeviceStorage(
         DistributedTensorConfig strategy_,
         std::vector<int> ordered_device_ids_,
@@ -254,6 +256,9 @@ struct MultiDeviceStorage {
         buffers(std::move(buffers_)),
         specs(std::move(specs_)),
         mesh_buffer(std::move(mesh_buffer_)) {}
+
+    // Constructs a replicated multi-device tensor backed by mesh buffer.
+    MultiDeviceStorage(const std::shared_ptr<distributed::MeshBuffer>& mesh_buffer_, const TensorSpec& tensor_spec);
 
     MultiDeviceStorage(MultiDeviceStorage&& other) { swap(*this, other); }
 
@@ -320,20 +325,22 @@ struct MultiDeviceStorage {
 
     inline std::shared_ptr<Buffer> get_buffer_for_device(IDevice* device) const {
         std::lock_guard<std::mutex> lock(buffer_mtx);
-        TT_ASSERT(buffers.find(device->id()) != buffers.end(), "Buffer not found for device {}", device->id());
+        auto buffer_it = buffers.find(device->id());
+        TT_FATAL(buffer_it != buffers.end(), "Buffer not found for device {}", device->id());
         TT_ASSERT(
-            buffers.at(device->id())->device() == device,
+            buffer_it->second->device() == device,
             "Mismatch between device derived from buffer and device derived from MultiDeviceStorage.");
-        return buffers.at(device->id());
+        return buffer_it->second;
     }
 
     inline std::shared_ptr<Buffer>& get_buffer_for_device(IDevice* device) {
         std::lock_guard<std::mutex> lock(buffer_mtx);
-        TT_ASSERT(buffers.find(device->id()) != buffers.end(), "Buffer not found for device {}", device->id());
+        auto buffer_it = buffers.find(device->id());
+        TT_FATAL(buffer_it != buffers.end(), "Buffer not found for device {}", device->id());
         TT_ASSERT(
-            buffers.at(device->id())->device() == device,
+            buffer_it->second->device() == device,
             "Mismatch between device derived from buffer and device derived from MultiDeviceStorage.");
-        return buffers.at(device->id());
+        return buffer_it->second;
     }
 
     inline std::shared_ptr<Buffer> get_buffer_for_device_id(uint32_t device_id) const {
@@ -343,8 +350,9 @@ struct MultiDeviceStorage {
 
     inline TensorSpec get_tensor_spec_for_device(IDevice* device) const {
         std::lock_guard<std::mutex> lock(shape_mtx);
-        TT_ASSERT(specs.find(device->id()) != specs.end(), "Shape not found for device {}", device->id());
-        return specs.at(device->id());
+        auto spec_it = specs.find(device->id());
+        TT_FATAL(spec_it != specs.end(), "Shape not found for device {}", device->id());
+        return spec_it->second;
     }
 
     inline uint32_t num_buffers() const {
@@ -377,6 +385,9 @@ struct MultiDeviceStorage {
 };
 
 using Storage = std::variant<OwnedStorage, DeviceStorage, BorrowedStorage, MultiDeviceHostStorage, MultiDeviceStorage>;
+
+template <typename T>
+concept OwnedOrBorrowedStorage = std::is_same_v<T, OwnedStorage> || std::is_same_v<T, BorrowedStorage>;
 
 template <typename T>
 constexpr void raise_unsupported_storage() {
