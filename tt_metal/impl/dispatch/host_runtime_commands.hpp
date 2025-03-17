@@ -19,19 +19,16 @@
 #include <tt-metalium/dispatch_settings.hpp>
 #include "device_command.hpp"
 #include "multi_producer_single_consumer_queue.hpp"
-#include "program_command_sequence.hpp"
+#include "tt_metal/impl/program/program_command_sequence.hpp"
 #include "worker_config_buffer.hpp"
 #include "program_impl.hpp"
 #include "trace_buffer.hpp"
 
 namespace tt::tt_metal {
-inline namespace v0 {
 
 class BufferRegion;
 class Event;
 class Trace;
-
-}  // namespace v0
 
 // Only contains the types of commands which are enqueued onto the device
 enum class EnqueueCommandType {
@@ -92,91 +89,6 @@ public:
     void process();
 
     EnqueueCommandType type() { return EnqueueCommandType::ENQUEUE_PROGRAM; }
-
-    constexpr bool has_side_effects() { return true; }
-};
-
-class EnqueueRecordEventCommand : public Command {
-private:
-    uint32_t command_queue_id;
-    IDevice* device;
-    NOC noc_index;
-    SystemMemoryManager& manager;
-    uint32_t event_id;
-    tt::stl::Span<const uint32_t> expected_num_workers_completed;
-    tt::stl::Span<const SubDeviceId> sub_device_ids;
-    bool clear_count;
-    bool write_barrier;
-
-public:
-    EnqueueRecordEventCommand(
-        uint32_t command_queue_id,
-        IDevice* device,
-        NOC noc_index,
-        SystemMemoryManager& manager,
-        uint32_t event_id,
-        tt::stl::Span<const uint32_t> expected_num_workers_completed,
-        tt::stl::Span<const SubDeviceId> sub_device_ids,
-        bool clear_count = false,
-        bool write_barrier = true);
-
-    void process();
-
-    EnqueueCommandType type() { return EnqueueCommandType::ENQUEUE_RECORD_EVENT; }
-
-    constexpr bool has_side_effects() { return false; }
-};
-
-class EnqueueWaitForEventCommand : public Command {
-private:
-    uint32_t command_queue_id;
-    IDevice* device;
-    SystemMemoryManager& manager;
-    const Event& sync_event;
-    CoreType dispatch_core_type;
-    bool clear_count;
-
-public:
-    EnqueueWaitForEventCommand(
-        uint32_t command_queue_id,
-        IDevice* device,
-        SystemMemoryManager& manager,
-        const Event& sync_event,
-        bool clear_count = false);
-
-    void process();
-
-    EnqueueCommandType type() { return EnqueueCommandType::ENQUEUE_WAIT_FOR_EVENT; }
-
-    constexpr bool has_side_effects() { return false; }
-};
-
-class EnqueueTraceCommand : public Command {
-private:
-    uint32_t command_queue_id;
-    Buffer& buffer;
-    IDevice* device;
-    SystemMemoryManager& manager;
-    std::shared_ptr<TraceDescriptor>& descriptor;
-    std::array<uint32_t, DispatchSettings::DISPATCH_MESSAGE_ENTRIES>& expected_num_workers_completed;
-    bool clear_count;
-    NOC noc_index;
-    CoreCoord dispatch_core;
-
-public:
-    EnqueueTraceCommand(
-        uint32_t command_queue_id,
-        IDevice* device,
-        SystemMemoryManager& manager,
-        std::shared_ptr<TraceDescriptor>& descriptor,
-        Buffer& buffer,
-        std::array<uint32_t, DispatchSettings::DISPATCH_MESSAGE_ENTRIES>& expected_num_workers_completed,
-        NOC noc_index,
-        CoreCoord dispatch_core);
-
-    void process();
-
-    EnqueueCommandType type() { return EnqueueCommandType::ENQUEUE_TRACE; }
 
     constexpr bool has_side_effects() { return true; }
 };

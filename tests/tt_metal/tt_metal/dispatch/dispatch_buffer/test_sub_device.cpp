@@ -14,8 +14,12 @@
 #include <tt-metalium/device.hpp>
 #include <tt-metalium/event.hpp>
 #include <tt-metalium/sub_device.hpp>
+#include <tt-metalium/allocator.hpp>
+
 #include "tt_metal/test_utils/stimulus.hpp"
 #include "command_queue_fixture.hpp"
+
+namespace tt::tt_metal {
 
 TEST_F(CommandQueueSingleCardFixture, TensixTestSubDeviceAllocations) {
     uint32_t local_l1_size = 3200;
@@ -139,3 +143,5 @@ TEST_F(CommandQueueSingleCardFixture, TensixTestSubDeviceBankIds) {
         EXPECT_EQ(global_bank_id, sub_device_bank_id);
     }
 }
+
+}  // namespace tt::tt_metal

@@ -4,6 +4,7 @@
 
 #pragma once
 #include "types.hpp"
+#include "ttnn/common/queue_id.hpp"
 
 namespace tt::tt_metal {
 struct Tensor;
@@ -13,24 +14,23 @@ namespace distributed {
 class MeshDevice;
 }  // namespace distributed
 
-inline namespace v0 {
 class IDevice;
-}  // namespace v0
+
 }  // namespace tt::tt_metal
 
 namespace tt::tt_metal::tensor_ops {
 
 Tensor tensor_to_device(
-    const Tensor& input_tensor, IDevice* target_device, const MemoryConfig& mem_config, uint8_t cq_id);
+    const Tensor& input_tensor, IDevice* target_device, const MemoryConfig& mem_config, QueueId cq_id);
 
 Tensor tensor_to_device(
-    const Tensor& input_tensor, const std::vector<IDevice*>& workers, const MemoryConfig& mem_config, uint8_t cq_id);
+    const Tensor& input_tensor, const std::vector<IDevice*>& workers, const MemoryConfig& mem_config, QueueId cq_id);
 
 Tensor tensor_to_layout(const Tensor& input_tensor, Layout target_layout, IDevice* worker);
 
 Tensor tensor_to_layout(const Tensor& input_tensor, Layout target_layout, distributed::MeshDevice* mesh_device);
 
-Tensor tensor_cpu(const Tensor& input_tensor, bool blocking, uint8_t cq_id);
+Tensor tensor_cpu(const Tensor& input_tensor, bool blocking, QueueId cq_id);
 
 void tensor_print(const Tensor& input_tensor);
 

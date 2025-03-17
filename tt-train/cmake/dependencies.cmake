@@ -1,4 +1,9 @@
 ############################################################################################################################
+# CPM
+############################################################################################################################
+include(${PROJECT_SOURCE_DIR}/cmake/CPM.cmake)
+
+############################################################################################################################
 # Boost
 ############################################################################################################################
 
@@ -65,7 +70,7 @@ CPMAddPackage(NAME magic_enum GITHUB_REPOSITORY Neargye/magic_enum GIT_TAG v0.9.
 # nlohmann/json : https://github.com/nlohmann/json
 ############################################################################################################################
 
-CPMAddPackage(NAME json GITHUB_REPOSITORY nlohmann/json GIT_TAG v3.11.3 OPTIONS "JSON_BuildTests OFF")
+CPMAddPackage(NAME nlohmann_json GITHUB_REPOSITORY nlohmann/json GIT_TAG v3.11.3 OPTIONS "JSON_BuildTests OFF")
 
 CPMAddPackage(NAME xtl GITHUB_REPOSITORY xtensor-stack/xtl GIT_TAG 0.7.7 OPTIONS "XTL_ENABLE_TESTS OFF")
 
@@ -79,16 +84,15 @@ CPMAddPackage(
         "XTENSOR_ENABLE_TESTS OFF"
 )
 
-CPMAddPackage(NAME taskflow GITHUB_REPOSITORY taskflow/taskflow GIT_TAG v3.7.0 OPTIONS "TF_BUILD_TESTS OFF")
-
 include(${PROJECT_SOURCE_DIR}/cmake/fetch_cli11.cmake)
 
+# gersemi: off
 CPMAddPackage(
     NAME msgpack
     GIT_REPOSITORY https://github.com/msgpack/msgpack-c.git
     GIT_TAG cpp-6.1.0
-    PATCHES
-        msgpack.patch
+    PATCH_COMMAND
+        patch --dry-run -p1 -R < ${CMAKE_CURRENT_LIST_DIR}/msgpack.patch || patch -p1 < ${CMAKE_CURRENT_LIST_DIR}/msgpack.patch
     OPTIONS
         "CMAKE_MESSAGE_LOG_LEVEL NOTICE"
         "MSGPACK_BUILD_EXAMPLES OFF"
@@ -107,8 +111,9 @@ CPMAddPackage(
     NAME tokenizers-cpp
     GITHUB_REPOSITORY mlc-ai/tokenizers-cpp
     GIT_TAG 5de6f656c06da557d4f0fb1ca611b16d6e9ff11d
-    PATCHES
-        tokenizers-cpp.patch
+    PATCH_COMMAND
+        patch --dry-run -p1 -R < ${CMAKE_CURRENT_LIST_DIR}/tokenizers-cpp.patch || patch -p1 < ${CMAKE_CURRENT_LIST_DIR}/tokenizers-cpp.patch
     OPTIONS
         "CMAKE_MESSAGE_LOG_LEVEL NOTICE"
 )
+# gersemi: on

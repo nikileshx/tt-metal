@@ -88,8 +88,7 @@ def run_with_trace(
         num_buffers_per_channel=n_buffer,
         topology=all_gather_topology,
     )
-    for d in mesh_device.get_devices():
-        ttnn.synchronize_device(d)
+    ttnn.synchronize_device(mesh_device)
 
     # Capture trace
     logger.info("Capturing trace")
@@ -105,15 +104,13 @@ def run_with_trace(
             topology=all_gather_topology,
         )
     ttnn.end_trace_capture(mesh_device, trace_id, cq_id=0)
-    for d in mesh_device.get_devices():
-        ttnn.synchronize_device(d)
+    ttnn.synchronize_device(mesh_device)
 
     # Run the op
     logger.info("Starting Trace perf test...")
     ttnn.execute_trace(mesh_device, trace_id, blocking=False)
     ttnn.release_trace(mesh_device, trace_id)
-    for d in mesh_device.get_devices():
-        ttnn.synchronize_device(d)
+    ttnn.synchronize_device(mesh_device)
 
     return tt_out_tensor
 
@@ -172,8 +169,7 @@ def run_all_gather_impl(
                 input_tensor_mesh, dim, num_links=num_links, memory_config=mem_config, topology=all_gather_topology
             )
 
-            for d in mesh_device.get_devices():
-                ttnn.synchronize_device(d)
+            ttnn.synchronize_device(mesh_device)
             logger.info(f"Done iteration {i}")
 
     for i, t in enumerate(ttnn.get_device_tensors(tt_out_tensor)):
@@ -1251,8 +1247,7 @@ def run_all_gather_sharded(
                 topology=all_gather_topology,
             )
         ## Wait for completion
-        for d in mesh_device.get_devices():
-            ttnn.synchronize_device(d)
+        ttnn.synchronize_device(mesh_device)
 
     torch.set_printoptions(sci_mode=False)
     all_eq = True
@@ -1959,24 +1954,29 @@ def test_all_gather_fp32(  # https://github.com/tenstorrent/tt-metal/issues/9686
         ttnn.bfloat16,
     ],
 )
-@pytest.mark.parametrize(
-    "tensor_mem_layout",
-    [
-        ttnn.TensorMemoryLayout.WIDTH_SHARDED,
-        ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
-        ttnn.TensorMemoryLayout.BLOCK_SHARDED,
-    ],
-)
 @pytest.mark.parametrize("orientation", [ttnn.ShardOrientation.ROW_MAJOR])
 @pytest.mark.parametrize("num_links", [1])
 @pytest.mark.parametrize(
-    "input_shape, input_shard_shape,shard_grid",
+    "input_shape, input_shard_shape,shard_grid,tensor_mem_layout",
     (
         # LLama
         (
             (4, 1, 256, 32),
             (32, 32),
             ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 3))}),
+            ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
+        ),
+        (
+            (1, 1, 64, 1024),
+            (64, 32),
+            ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 3))}),
+            ttnn.TensorMemoryLayout.WIDTH_SHARDED,
+        ),
+        (
+            (4, 1, 256, 64),
+            (256, 32),
+            ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 3))}),
+            ttnn.TensorMemoryLayout.BLOCK_SHARDED,
         ),
     ),
 )

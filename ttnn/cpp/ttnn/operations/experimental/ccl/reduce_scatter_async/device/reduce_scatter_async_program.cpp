@@ -13,8 +13,8 @@
 #include <tt-metalium/logger.hpp>
 #include <tt-metalium/device_impl.hpp>
 #include <tt-metalium/kernel_types.hpp>
-#include <tt-metalium/span.hpp>
-#include "cpp/ttnn/operations/ccl/erisc_datamover_builder.hpp"
+#include <tt_stl/span.hpp>
+#include <tt-metalium/erisc_datamover_builder.hpp>
 #include "cpp/ttnn/operations/ccl/common/host/ccl_worker_builder.hpp"
 #include <tt-metalium/host_api.hpp>
 #include "ttnn/operation.hpp"
@@ -30,7 +30,7 @@
 #include "cpp/ttnn/operations/ccl/common/types/ccl_types_args_emitters.hpp"
 #include "cpp/ttnn/operations/ccl/common/host/ccl_command_stream_builders.hpp"
 #include <tt-metalium/global_semaphore.hpp>
-#include <tt-metalium/overloaded.hpp>
+#include <tt_stl/overloaded.hpp>
 
 /*
  * This file contains the program factory for reduce scatter operation implemented on line (and soon, ring) topologies.
@@ -86,6 +86,8 @@
  *
  *
  */
+
+using namespace tt::tt_metal;
 
 namespace ttnn::ccl::reduce_scatter_detail {
 
@@ -1214,7 +1216,7 @@ static void populate_partial_reduce_rt_args(
 
     auto get_fabric_connection = [&device, &fabric](bool is_connected, Direction dir) {
         return is_connected
-                   ? std::make_optional<ttnn::ccl::SenderWorkerAdapterSpec>(fabric.uniquely_connect_worker(device, dir))
+                   ? std::make_optional<tt::tt_fabric::SenderWorkerAdapterSpec>(fabric.uniquely_connect_worker(device, dir))
                    : std::nullopt;
     };
 
@@ -1538,7 +1540,7 @@ static void create_end_of_line_worker_runtime_args(
 
     auto get_fabric_connection = [&device, &fabric](bool is_connected, Direction dir) {
         return is_connected
-                   ? std::make_optional<ttnn::ccl::SenderWorkerAdapterSpec>(fabric.uniquely_connect_worker(device, dir))
+                   ? std::make_optional<tt::tt_fabric::SenderWorkerAdapterSpec>(fabric.uniquely_connect_worker(device, dir))
                    : std::nullopt;
     };
 
@@ -1813,8 +1815,8 @@ static void initialize_op_internal_tensor_syncs(
     std::array<IDevice*, 2> const& neighbour_devices,
     ProgramTensorsBundle& all_tensors,
     WorkerCoreBundle const& worker_cores,
-    std::shared_ptr<const GlobalSemaphore> const& from_remote_sem,
-    std::shared_ptr<const GlobalSemaphore> const& to_remote_sem) {
+    GlobalSemaphore const& from_remote_sem,
+    GlobalSemaphore const& to_remote_sem) {
     auto core_coord_lt = [](CoreCoord const& a, CoreCoord const& b) { return a.y < b.y || (a.y == b.y && a.x < b.x); };
 
     TT_FATAL(
@@ -1836,12 +1838,12 @@ static void initialize_op_internal_tensor_syncs(
                 device->worker_core_from_logical_core(worker_core).x,
                 device->worker_core_from_logical_core(worker_core).y,
             });
-            all_tensors.input_tensor_from_remote_sync[direction].semaphore_ids.push_back(from_remote_sem.get());
+            all_tensors.input_tensor_from_remote_sync[direction].semaphore_ids.push_back(&from_remote_sem);
             all_tensors.input_tensor_from_remote_sync[direction].completion_target_value_per_semaphore.push_back(1);
 
             // remote output sync
             if (neighbour_devices[direction] != nullptr) {
-                all_tensors.remote_output_sync[direction].semaphore_ids.push_back(to_remote_sem.get());
+                all_tensors.remote_output_sync[direction].semaphore_ids.push_back(&to_remote_sem);
                 all_tensors.remote_output_sync[direction].completion_target_value_per_semaphore.push_back(1);
                 all_tensors.remote_output_sync[direction] = all_tensors.input_tensor_from_remote_sync[direction];
                 all_tensors.remote_output_sync[direction].targets.back() = TensorSyncSpec::target_rect{
@@ -2157,10 +2159,9 @@ operation::ProgramWithCallbacks reduce_scatter_async_on_instantiated_edm_fabric(
     const uint32_t dim,
     const size_t num_links,
     ttnn::ccl::Topology topology,
-
     fabric_lifetime_mode fabric_mode,
-    std::shared_ptr<const GlobalSemaphore> const& from_remote_sems,
-    std::shared_ptr<const GlobalSemaphore> const& to_remote_sem,
+    const GlobalSemaphore& from_remote_sems,
+    const GlobalSemaphore& to_remote_sem,
     const std::optional<SubDeviceId>& sub_device_id) {
     using namespace ttnn::ccl::worker_detail;
     bool do_dynamic_fabric_bringup_and_teardown = fabric_mode == fabric_lifetime_mode::TRANSIENT;
@@ -2484,8 +2485,8 @@ operation::ProgramWithCallbacks build_reduce_scatter_async_program(
     const uint32_t line_index,
     ttnn::ccl::Topology topology,
     std::optional<size_t> num_links_preferred,
-    std::shared_ptr<const tt::tt_metal::GlobalSemaphore> const& from_remote_sem,
-    std::shared_ptr<const tt::tt_metal::GlobalSemaphore> const& to_remote_sem,
+    const tt::tt_metal::GlobalSemaphore& from_remote_sem,
+    const tt::tt_metal::GlobalSemaphore& to_remote_sem,
     const std::optional<SubDeviceId>& sub_device_id,
     std::optional<ttnn::ccl::EdmLineFabricOpInterface>& fabric_handle_) {
     auto program = tt::tt_metal::Program();

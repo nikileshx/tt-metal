@@ -8,7 +8,7 @@
 #include <tt-metalium/util.hpp>
 #include <tt-metalium/host_api.hpp>
 
-#include "ttnn/common/constants.hpp"
+#include "ttnn/common/queue_id.hpp"
 #include "ttnn/operations/core/core.hpp"
 #include "ttnn/operations/data_movement/sharded/sharded_to_interleaved/sharded_to_interleaved.hpp"
 #include "ttnn/operations/data_movement/sharded/interleaved_to_sharded/interleaved_to_sharded.hpp"
@@ -38,7 +38,7 @@ ttnn::Tensor repeat_upper_dims_rm(
     const ttnn::Tensor& tensor,
     const uint32_t dim,
     const uint32_t repetitions,
-    uint8_t queue_id,
+    QueueId queue_id,
     const MemoryConfig& output_mem_config) {
     // collapse upper dims to 4D or append 1s
     // collapse lower dims or insert 1s
@@ -62,7 +62,7 @@ ttnn::Tensor repeat_upper_dims_rm(
 
     constexpr bool is_final_dim = false;
     auto out_tensor =
-        operation::run(
+        tt::tt_metal::operation::run(
             RepeatDeviceOperation{repetitions, is_final_dim, output_mem_config}, {input_tensor}, {}, {}, queue_id)
             .at(0);
     auto expected_shape = input_shape;
@@ -72,7 +72,7 @@ ttnn::Tensor repeat_upper_dims_rm(
 }
 
 ttnn::Tensor repeat_last_dim_rm(
-    const ttnn::Tensor& tensor, const uint32_t repetitions, uint8_t queue_id, const MemoryConfig& output_mem_config) {
+    const ttnn::Tensor& tensor, const uint32_t repetitions, QueueId queue_id, const MemoryConfig& output_mem_config) {
     // collapse to 2D
     // op
     // un-collapse
@@ -88,7 +88,7 @@ ttnn::Tensor repeat_last_dim_rm(
 
     constexpr bool is_final_dim = true;
     auto out_tensor =
-        operation::run(
+        tt::tt_metal::operation::run(
             RepeatDeviceOperation{repetitions, is_final_dim, output_mem_config}, {input_tensor}, {}, {}, queue_id)
             .at(0);
 
@@ -140,7 +140,7 @@ ttnn::Tensor RepeatOperation::invoke(
     const ttnn::Tensor& tensor,
     const ttnn::SmallVector<uint32_t>& provided_repetition_vector,
     const std::optional<MemoryConfig>& provided_output_mem_config,
-    uint8_t queue_id) {
+    QueueId queue_id) {
     auto [working_tensor, repetition_vector] = detail::match_input_rank(tensor, provided_repetition_vector);
     MemoryConfig output_mem_config = provided_output_mem_config.value_or(tensor.memory_config());
     auto working_output_mem_config = output_mem_config;
@@ -176,7 +176,7 @@ ttnn::Tensor RepeatOperation::invoke(
     // tiled -> RM
     if (working_tensor.layout() == ttnn::TILE_LAYOUT) {
         working_tensor =
-            ttnn::to_layout(working_tensor, ttnn::ROW_MAJOR_LAYOUT, std::nullopt, std::nullopt, (Device*)nullptr);
+            ttnn::to_layout(working_tensor, ttnn::ROW_MAJOR_LAYOUT, std::nullopt, std::nullopt, (IDevice*)nullptr);
     }
 
     // loop over dims in repetition vector, backwards because repeat pages first is faster
@@ -199,7 +199,7 @@ ttnn::Tensor RepeatOperation::invoke(
     // RM -> OG page layout
     if (tensor.layout() == ttnn::TILE_LAYOUT) {
         working_tensor =
-            ttnn::to_layout(working_tensor, ttnn::TILE_LAYOUT, tensor.get_dtype(), std::nullopt, (Device*)nullptr);
+            ttnn::to_layout(working_tensor, ttnn::TILE_LAYOUT, tensor.get_dtype(), std::nullopt, (IDevice*)nullptr);
     }
 
     // Interleaved to OG mem layout

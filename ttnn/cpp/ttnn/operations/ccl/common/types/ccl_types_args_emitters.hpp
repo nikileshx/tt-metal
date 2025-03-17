@@ -14,9 +14,8 @@ namespace tt_metal {
 class Tensor;
 class ShardSpec;
 
-inline namespace v0 {
 class IDevice;
-}  // namespace v0
+
 }  // namespace tt_metal
 }  // namespace tt
 
@@ -49,7 +48,10 @@ args_list_t emit_compile_time(Shape4D<T> const& shape) {
 
 args_list_t emit_address_generator_runtime_args(
     tt::tt_metal::IDevice const* const d, tt::tt_metal::Tensor const& tensor);
-args_list_t emit_address_generator_compile_time_args(tt::tt_metal::Tensor const& tensor);
+args_list_t legacy_emit_address_generator_runtime_args(
+    const tt::tt_metal::IDevice* const d, const tt::tt_metal::Tensor& tensor);
+args_list_t emit_address_generator_compile_time_args(const tt::tt_metal::Tensor& t);
+args_list_t legacy_emit_address_generator_compile_time_args(const tt::tt_metal::Tensor& tensor);
 
 std::pair<CoreCoord, CoreCoord> shard_grid_from_shard_spec(const tt::tt_metal::ShardSpec& shard_spec);
 

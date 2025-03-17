@@ -4,8 +4,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <mesh_buffer.hpp>
-#include <overloaded.hpp>
+#include <mesh_coord.hpp>
+#include <mesh_device_view.hpp>
+#include <tt_stl/overloaded.hpp>
 #include <tt_metal.hpp>
+#include <host_api.hpp>
 
 namespace tt::tt_metal::distributed {
 namespace {
@@ -110,12 +113,9 @@ std::shared_ptr<MeshBuffer> MeshBuffer::create(
 }
 
 void MeshBuffer::initialize_device_buffers() {
-    buffers_ = std::vector<std::vector<std::shared_ptr<Buffer>>>(
-        mesh_device_->num_rows(), std::vector<std::shared_ptr<Buffer>>(mesh_device_->num_cols()));
-
-    auto init_device_buffer_at_address = [this](const Coordinate& coord) {
+    auto init_device_buffer_at_address = [this](const MeshCoordinate& coord) {
         std::shared_ptr<Buffer> buffer = Buffer::create(
-            mesh_device_->get_device(coord.row, coord.col),
+            device()->get_device(coord),
             address_,
             device_local_size_,
             device_local_config_.page_size,
@@ -126,27 +126,41 @@ void MeshBuffer::initialize_device_buffers() {
         return buffer;
     };
 
-    for (int row = 0; row < mesh_device_->num_rows(); row++) {
-        for (int col = 0; col < mesh_device_->num_cols(); col++) {
-            buffers_[row][col] = init_device_buffer_at_address(Coordinate{row, col});
-        }
+    for (auto& [coord, device_buffer] : buffers_) {
+        device_buffer = init_device_buffer_at_address(coord);
     }
 }
 
 bool MeshBuffer::is_allocated() const { return not std::holds_alternative<DeallocatedState>(state_); }
 
-void MeshBuffer::deallocate() { state_ = DeallocatedState{}; }
+MeshBuffer::~MeshBuffer() { deallocate(); }
 
-std::shared_ptr<Buffer> MeshBuffer::get_device_buffer(const Coordinate& device_coord) const {
-    TT_FATAL(
-        device_coord.row < mesh_device_->num_rows() and device_coord.col < mesh_device_->num_cols(),
-        "Logical coordinates must be within the bounds of the mesh: {}, {}, mesh shape: {}, {}",
-        device_coord.row,
-        device_coord.col,
-        mesh_device_->num_rows(),
-        mesh_device_->num_cols());
-    return buffers_[device_coord.row][device_coord.col];
+void MeshBuffer::deallocate() {
+    auto mesh_device = mesh_device_.lock();
+    if (mesh_device) {
+        state_ = DeallocatedState{};
+        return;
+    }
+
+    // Special handling is required if MeshDevice is already deallocated
+    if (std::holds_alternative<OwnedBufferState>(state_)) {
+        auto& owned_state = std::get<OwnedBufferState>(state_);
+        owned_state.backing_buffer->mark_as_deallocated();
+    }
+    state_ = DeallocatedState{};
 }
+
+MeshDevice* MeshBuffer::device() const {
+    auto device = mesh_device_.lock();
+    TT_FATAL(device, "Can't get device from mesh buffer, already deallocated");
+    return device.get();
+}
+
+std::shared_ptr<Buffer> MeshBuffer::get_device_buffer(const MeshCoordinate& device_coord) const {
+    return buffers_.at(device_coord);
+}
+
+std::shared_ptr<Buffer> MeshBuffer::get_reference_buffer() const { return buffers_.values().front(); }
 
 DeviceAddr MeshBuffer::size() const {
     return std::visit(
@@ -188,6 +202,57 @@ std::pair<bool, bool> MeshBuffer::replicated_dims() const {
         this->global_layout() == MeshBufferLayout::SHARDED,
         "Can only query replicated dims for buffers sharded across the Mesh");
     return this->global_shard_spec().replicated_dims();
+}
+
+AnyBuffer::AnyBuffer(std::shared_ptr<Buffer> buffer) : buffer_(buffer.get()), holder_(std::move(buffer)) {}
+AnyBuffer::AnyBuffer(std::shared_ptr<MeshBuffer> buffer) :
+    buffer_(buffer->get_reference_buffer().get()), holder_(std::move(buffer)) {}
+
+AnyBuffer AnyBuffer::create(const tt::tt_metal::ShardedBufferConfig& config) {
+    auto mesh_device = dynamic_cast<MeshDevice*>(config.device);
+    if (!mesh_device) {
+        return AnyBuffer{CreateBuffer(config)};
+    }
+    MeshBufferConfig mesh_config = ReplicatedBufferConfig{
+        .size = config.size,
+    };
+    DeviceLocalBufferConfig local_config{
+        .page_size = config.page_size,
+        .buffer_type = config.buffer_type,
+        .buffer_layout = config.buffer_layout,
+        .shard_parameters = config.shard_parameters,
+    };
+    return MeshBuffer::create(mesh_config, local_config, mesh_device);
+}
+
+AnyBuffer AnyBuffer::create(const tt::tt_metal::InterleavedBufferConfig& config) {
+    auto mesh_device = dynamic_cast<MeshDevice*>(config.device);
+    if (!mesh_device) {
+        return AnyBuffer{CreateBuffer(config)};
+    }
+    MeshBufferConfig mesh_config = ReplicatedBufferConfig{
+        .size = config.size,
+    };
+    DeviceLocalBufferConfig local_config{
+        .page_size = config.page_size,
+        .buffer_type = config.buffer_type,
+        .buffer_layout = config.buffer_layout,
+    };
+    return MeshBuffer::create(mesh_config, local_config, mesh_device);
+}
+
+Buffer* AnyBuffer::get_buffer() const { return buffer_; }
+
+bool AnyBuffer::is_mesh_buffer() const { return get_mesh_buffer() != nullptr; }
+
+std::shared_ptr<MeshBuffer> AnyBuffer::get_mesh_buffer() const {
+    if (auto mesh_buffer_ptr = std::get_if<std::shared_ptr<MeshBuffer>>(&holder_)) {
+        auto mesh_buffer = *mesh_buffer_ptr;
+        if (mesh_buffer->is_allocated()) {
+            return mesh_buffer;
+        }
+    }
+    return nullptr;
 }
 
 }  // namespace tt::tt_metal::distributed
