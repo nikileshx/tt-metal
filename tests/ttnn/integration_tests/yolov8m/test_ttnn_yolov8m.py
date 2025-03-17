@@ -17,6 +17,7 @@ from models.experimental.functional_yolov8m.tt.ttnn_yolov8m import conv, c2f, SP
 from models.experimental.functional_yolov8m.tt.ttnn_yolov8m_utils import (
     ttnn_decode_bboxes,
     custom_preprocessor,
+    compare_tensors,
 )
 
 try:
@@ -103,7 +104,7 @@ def run_submodule(x, submodule):
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
 @pytest.mark.parametrize(
     "input_tensor",
-    [(torch.rand((14, 3, 224, 224)))],
+    [(torch.rand((8, 3, 320, 320)))],
     ids=[
         "input_tensor1",
     ],
@@ -144,13 +145,17 @@ def test_demo(device, input_tensor):
 
     with torch.inference_mode():
         ttnn_model_output = YOLOv8m(device, ttnn_input, parameters, res=(inp_h, inp_w), batch_size=bs)[0]
-        ttnn_model_output = ttnn.to_torch(ttnn_model_output)
+        ttnn_model_output = ttnn.to_torch(ttnn_model_output, dtype=torch.float32)
 
     with torch.inference_mode():
         torch_model_output = torch_model(input_tensor)[0]
 
     passing, pcc = assert_with_pcc(ttnn_model_output, torch_model_output, 0.99)
     logger.info(f"Passing: {passing}, PCC: {pcc}")
+
+    logger.info(f"Printing Torch All Close Metrics")
+    results = compare_tensors(ttnn_model_output, torch_model_output)
+    logger.info(f"{results}")
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
