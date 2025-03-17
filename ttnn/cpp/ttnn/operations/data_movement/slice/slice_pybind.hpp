@@ -57,7 +57,7 @@ void bind_slice(py::module& module) {
                const std::optional<ttnn::SmallVector<uint32_t>>& step,
                const std::optional<ttnn::MemoryConfig>& memory_config,
                const std::optional<Tensor>& optional_output_tensor,
-               uint8_t queue_id) {
+               QueueId queue_id) {
                 return self(queue_id, input_tensor, begins, ends, step, memory_config, optional_output_tensor);
             },
             py::arg("input_tensor"),
@@ -97,7 +97,7 @@ void bind_slice(py::module& module) {
                const std::optional<ttnn::SmallVector<int>>& step,
                const std::optional<ttnn::MemoryConfig>& memory_config,
                const std::optional<Tensor>& optional_output_tensor,
-               uint8_t queue_id) {
+               QueueId queue_id) {
                 const auto step_value = step.value_or(ttnn::SmallVector<int>(slice_end.size(), 1));
                 return self(
                     queue_id, input_tensor, slice_start, slice_end, step_value, memory_config, optional_output_tensor);

@@ -360,7 +360,7 @@ ttnn::Tensor SliceOperation::invoke(
 
 template <typename T>
 ttnn::Tensor SliceOperation::invoke(
-    uint8_t queue_id,
+    QueueId queue_id,
     const ttnn::Tensor& input_tensor,
     const ttnn::Tensor& output_tensor_start,
     const ttnn::Tensor& output_tensor_end,
@@ -368,13 +368,13 @@ ttnn::Tensor SliceOperation::invoke(
     const std::optional<MemoryConfig>& memory_config_arg,
     const std::optional<Tensor>& optional_output_tensor) {
     TT_FATAL(
-        output_tensor_start.shape().rank() == 1,
+        output_tensor_start.get_logical_shape().rank() == 1,
         "The start tensor for slicing must be in 1D shape, but got {}D",
-        output_tensor_start.shape().rank());
+        output_tensor_start.get_logical_shape().rank());
     TT_FATAL(
-        output_tensor_end.shape().rank() == 1,
+        output_tensor_end.get_logical_shape().rank() == 1,
         "The end tensor for slicing must be in 1D shape, but got {}D",
-        output_tensor_end.shape().rank());
+        output_tensor_end.get_logical_shape().rank());
 
     // convert the Tensor to Vector
     std::vector<T> output_tensor_start_vector = output_tensor_start.to_vector<T>();
@@ -476,7 +476,7 @@ template ttnn::Tensor SliceOperation::invoke<uint32_t>(
     const std::optional<Tensor>& optional_output_tensor);
 
 template ttnn::Tensor SliceOperation::invoke<uint32_t>(
-    uint8_t queue_id,
+    QueueId queue_id,
     const ttnn::Tensor& input_tensor,
     const ttnn::Tensor& output_tensor_start,
     const ttnn::Tensor& output_tensor_end,

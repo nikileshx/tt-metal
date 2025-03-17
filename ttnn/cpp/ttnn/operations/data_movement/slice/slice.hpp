@@ -87,7 +87,7 @@ struct SliceOperation {
 
     template <typename T>
     static ttnn::Tensor invoke(
-        uint8_t queue_id,
+        QueueId queue_id,
         const ttnn::Tensor& input_tensor,
         const ttnn::Tensor& output_tensor_start,
         const ttnn::Tensor& output_tensor_end,
