@@ -4,6 +4,8 @@
 
 #include <math.h>
 
+#include "tt-metalium/circular_buffer.hpp"
+#include "tt-metalium/circular_buffer_types.hpp"
 #include "upsample_op.hpp"
 #include "ttnn/operations/math.hpp"
 
@@ -14,7 +16,7 @@
 // #include "ttnn/tensor/tensor_utils.hpp"
 #include "ttnn/operations/reduction/generic/device/reduce_op.hpp"  // for reduce_op_utils
 
-#include <tt-metalium/reflection.hpp>
+#include <tt_stl/reflection.hpp>
 #include "ttnn/operations/functions.hpp"
 #include "ttnn/operations/sliding_window/sliding_window.hpp"
 #include "ttnn/operations/sliding_window/halo/halo.hpp"
@@ -29,9 +31,9 @@ using namespace tt;
 using sliding_window::SlidingWindowConfig;
 
 Tensor HaloTensorCreation(const Tensor& input) {
-    int batch_size = input.get_legacy_shape()[0];
-    int input_height = input.get_legacy_shape()[1];
-    int input_width = input.get_legacy_shape()[2];
+    int batch_size = input.get_padded_shape()[0];
+    int input_height = input.get_padded_shape()[1];
+    int input_width = input.get_padded_shape()[2];
     int num_cores_nhw = input.shard_spec().value().num_cores();
     int num_cores_c = 1;
 
@@ -49,10 +51,9 @@ Tensor HaloTensorCreation(const Tensor& input) {
         .snap_to_tile = false,
         .is_bilinear = true};
 
-    input_tensor = ttnn::reshape(
-        input_tensor,
-        SimpleShape(std::array<uint32_t, 4>{
-            1, 1, input.get_shape()[0] * input.get_shape()[1] * input.get_shape()[2], input.get_shape()[3]}));
+    const auto& input_shape = input.get_logical_shape();
+    Shape new_shape({1, 1, input_shape[0] * input_shape[1] * input_shape[2], input_shape[3]});
+    input_tensor = ttnn::reshape(input_tensor, new_shape);
 
     auto halo_output = ttnn::halo(
         DefaultQueueId, input_tensor, sliding_window_config, 0, false, false, 0, input_tensor.memory_config(), false);
@@ -60,32 +61,32 @@ Tensor HaloTensorCreation(const Tensor& input) {
     return halo_output;
 }
 
-operation::ProgramWithCallbacks bilinear_multi_core(
+tt::tt_metal::operation::ProgramWithCallbacks bilinear_multi_core(
     const Tensor& input,
     Tensor& output,
     const uint32_t scale_factor_h,
     const uint32_t scale_factor_w,
     const DeviceComputeKernelConfig compute_kernel_config) {
-    Program program = CreateProgram();
+    Program program = tt::tt_metal::CreateProgram();
     IDevice* device = input.device();
 
-    auto input_shape = input.get_legacy_shape();
-    auto output_shape = output.get_legacy_shape();
+    auto input_shape = input.get_padded_shape();
+    auto output_shape = output.get_padded_shape();
 
     tt::DataFormat input_cb_data_format = tt::tt_metal::datatype_to_dataformat_converter(input.get_dtype());
     tt::DataFormat output_cb_data_format = tt::tt_metal::datatype_to_dataformat_converter(output.get_dtype());
 
     // NOTE: input is assumed to have channels last format: {N, H, W, C}, {N, 1, H * W, C}, {1, 1, N * H * W, C}
     // NOTE: Bfp8_b/TILE is not yet supported
-    uint32_t input_stick_nbytes = input.get_legacy_shape()[-1] * input.element_size();
-    uint32_t output_stick_nbytes = output.get_legacy_shape()[-1] * output.element_size();
+    uint32_t input_stick_nbytes = input.get_padded_shape()[-1] * input.element_size();
+    uint32_t output_stick_nbytes = output.get_padded_shape()[-1] * output.element_size();
     TT_FATAL(input_stick_nbytes == output_stick_nbytes, "Input and output sticks should have same size");
 
-    uint32_t output_nsticks = output.volume() / output.get_legacy_shape()[-1];
-    uint32_t input_nsticks = input.volume() / input.get_legacy_shape()[-1];
+    uint32_t output_nsticks = output.volume() / output.get_padded_shape()[-1];
+    uint32_t input_nsticks = input.volume() / input.get_padded_shape()[-1];
 
-    uint32_t in_w = input.get_legacy_shape()[2];
-    uint32_t out_w = output.get_legacy_shape()[2];
+    uint32_t in_w = input.get_padded_shape()[2];
+    uint32_t out_w = output.get_padded_shape()[2];
 
     auto [math_fidelity, math_approx_mode, fp32_dest_acc_en, packer_l1_acc, dst_full_sync_en] =
         get_compute_kernel_config_args(input.device()->arch(), compute_kernel_config);
@@ -138,6 +139,10 @@ operation::ProgramWithCallbacks bilinear_multi_core(
     auto halo_shard_shape = halo_in.shard_spec().value().shape;
 
     // CBs
+    using tt::tt_metal::CBHandle;
+    using tt::tt_metal::CircularBuffer;
+    using tt::tt_metal::CircularBufferConfig;
+
     uint32_t buffering_factor = 2;
 
     // input data is in a sharded CB
@@ -262,14 +267,14 @@ operation::ProgramWithCallbacks bilinear_multi_core(
         output_nsticks_per_core,  // loop count with blocks
     };
 
-    auto reader_kernel =
-        CreateKernel(program, reader_kernel_fname, all_cores, ReaderDataMovementConfig(reader_compile_time_args));
-    auto writer_kernel =
-        CreateKernel(program, writer_kernel_fname, all_cores, WriterDataMovementConfig(writer_compile_time_args));
+    auto reader_kernel = CreateKernel(
+        program, reader_kernel_fname, all_cores, tt::tt_metal::ReaderDataMovementConfig(reader_compile_time_args));
+    auto writer_kernel = CreateKernel(
+        program, writer_kernel_fname, all_cores, tt::tt_metal::WriterDataMovementConfig(writer_compile_time_args));
     TT_FATAL(fp32_dest_acc_en == false, "fp32_dest_acc_en as true not supported. #12787 issue raised");
-    auto reduce_op = ReduceOpMath::SUM;
-    auto reduce_dim = ReduceOpDim::H;
-    auto compute_config = ComputeConfig{
+    auto reduce_op = tt::tt_metal::ReduceOpMath::SUM;
+    auto reduce_dim = tt::tt_metal::ReduceOpDim::H;
+    auto compute_config = tt::tt_metal::ComputeConfig{
         .math_fidelity = math_fidelity,
         .fp32_dest_acc_en = fp32_dest_acc_en,
         .math_approx_mode = math_approx_mode,

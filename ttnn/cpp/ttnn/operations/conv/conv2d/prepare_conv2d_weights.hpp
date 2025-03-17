@@ -78,6 +78,7 @@ ttnn::Tensor prepare_conv_weights(
     std::array<uint32_t, 2> stride,
     std::array<uint32_t, 2> padding,
     std::array<uint32_t, 2> dilation,
+    const bool has_bias,
     uint32_t groups,
     T* device,
     const std::optional<const Conv2dConfig>& conv_config_,
@@ -103,6 +104,22 @@ ttnn::Tensor prepare_conv_bias(
     const std::optional<const DeviceComputeKernelConfig>& compute_config_);
 
 template <typename T>
+std::pair<ttnn::Tensor, std::optional<ttnn::Tensor>> prepare_conv_weights_biases_on_device(
+    const ttnn::Tensor& weight_tensor,
+    std::optional<const ttnn::Tensor>& bias_tensor,
+    uint32_t input_channels_alignment,
+    DataType weights_bias_dtype,
+    uint32_t weight_block_h_ntiles,
+    uint32_t weight_block_w_ntiles,
+    const sliding_window::ParallelConfig& input_parallel_config,
+    const sliding_window::ParallelConfig& output_parallel_config,
+    T* device,
+    uint32_t groups,
+    uint32_t act_block_h_ntiles,
+    uint32_t input_width,
+    const bool parameters_on_device);
+
+template <typename T>
 std::pair<ttnn::Tensor, std::optional<ttnn::Tensor>> prepare_conv_weights_biases_and_move_to_device(
     const ttnn::Tensor& weight_tensor,
     std::optional<const ttnn::Tensor>& bias_tensor,
@@ -116,8 +133,7 @@ std::pair<ttnn::Tensor, std::optional<ttnn::Tensor>> prepare_conv_weights_biases
     uint32_t groups,
     uint32_t act_block_h_ntiles,
     uint32_t input_width,
-    const bool parameters_on_device = true,
-    bool is_non_tile_mul_width = false);
+    const bool parameters_on_device = true);
 
 }  // namespace conv2d
 }  // namespace operations::conv

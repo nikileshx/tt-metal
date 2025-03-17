@@ -4,34 +4,19 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-docker-artifact:
-    uses: ./.github/workflows/build-docker-artifact.yaml
-    secrets: inherit
   build-artifact:
-    needs: build-docker-artifact
     uses: ./.github/workflows/build-artifact.yaml
     secrets: inherit
-  build-wheels:
-    needs: build-artifact
-    strategy:
-      matrix:
-        # Since pre-compiled builds only run on 20.04, we can only test on 20.04 for now
-        # The full 22.04 flow can be tested without precompiled
-        os: [ubuntu-20.04]
-    uses: ./.github/workflows/_build-wheels-impl.yaml
     with:
-      os: ${{ matrix.os }}
-      from-precompiled: true
-    secrets: inherit
+      build-wheel: true
   # FD Unit Tests
   fast-dispatch-unit-tests:
-    needs: build-wheels
+    needs: build-artifact
     secrets: inherit
     strategy:
       fail-fast: false
       matrix:
         test-group: [
-          { arch: grayskull, runner-label: E150 },
           { arch: wormhole_b0, runner-label: N150 },
           { arch: wormhole_b0, runner-label: N300 },
         ]
@@ -41,13 +26,12 @@ jobs:
       runner-label: ${{ matrix.test-group.runner-label}}
   # TTNN FD Unit tests
   ttnn-unit-tests:
-    needs: build-wheels
+    needs: build-artifact
     secrets: inherit
     strategy:
       fail-fast: false
       matrix:
         test-group: [
-          { arch: grayskull, runner-label: E150 },
           { arch: wormhole_b0, runner-label: N150 },
           { arch: wormhole_b0, runner-label: N300 },
         ]
@@ -58,13 +42,12 @@ jobs:
 
   # FD Model Tests
   models-unit-tests:
-    needs: build-wheels
+    needs: build-artifact
     secrets: inherit
     strategy:
       fail-fast: false
       matrix:
         test-group: [
-          { arch: grayskull, runner-label: E150 },
           { arch: wormhole_b0, runner-label: N150 },
           { arch: wormhole_b0, runner-label: N300 },
         ]
@@ -75,13 +58,12 @@ jobs:
 
   # FD C++ Unit Tests
   cpp-unit-tests:
-    needs: build-wheels
+    needs: build-artifact
     secrets: inherit
     strategy:
       fail-fast: false
       matrix:
         test-group: [
-          { arch: grayskull, runner-label: E150 },
           { arch: wormhole_b0, runner-label: N150 },
           { arch: wormhole_b0, runner-label: N300 },
         ]

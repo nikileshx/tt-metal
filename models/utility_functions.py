@@ -163,20 +163,6 @@ def disable_persistent_kernel_cache():
     ttnn.device.DisablePersistentKernelCache()
 
 
-def enable_compilation_reports():
-    """
-    Enables generating reports of compilation statistics in .reports/tt_metal dir
-    """
-    return ttnn.device.EnableCompilationReports()
-
-
-def disable_compilation_reports():
-    """
-    Disables generating reports of compilation statistics
-    """
-    return ttnn.device.DisableCompilationReports()
-
-
 def enable_memory_reports():
     """
     Enables generating reports of memory allocation statistics in .reports/tt_metal dir
@@ -313,7 +299,7 @@ def pad_by_zero(
 
 
 def unpad_from_zero(x, desired_shape):
-    if x.shape.with_tile_padding()[-1] == desired_shape[-1] and x.shape.with_tile_padding()[-2] == desired_shape[-2]:
+    if x.padded_shape[-1] == desired_shape[-1] and x.padded_shape[-2] == desired_shape[-2]:
         x = tt2torch_tensor(x)
     else:
         x = x.cpu()
@@ -887,6 +873,10 @@ def skip_for_wormhole_b0(reason_str="not working for Wormhole B0"):
 
 def skip_for_grayskull(reason_str="not working for Grayskull"):
     return pytest.mark.skipif(is_grayskull(), reason=reason_str)
+
+
+def run_for_blackhole(reason_str="only runs for Blackhole"):
+    return pytest.mark.skipif(not is_blackhole(), reason=reason_str)
 
 
 def run_for_wormhole_b0(reason_str="only runs for Wormhole B0"):

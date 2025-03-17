@@ -107,7 +107,7 @@ std::map<std::string, std::string> get_defines(
             op_binary_type = "EltwiseBinaryType::ELWADD";
             defines.merge(get_defines(UnaryOpType::LOG2, std::nullopt, "0", idst));
             break;
-        default: TT_ASSERT(false && "Undefined op type");
+        default: TT_THROW("Undefined op type {}", op_type);
     }
 
     using DataType = tt::tt_metal::DataType;
@@ -138,10 +138,10 @@ std::map<std::string, std::string> get_defines(
          (input_dtype.value() == DataType::UINT16 && output_dtype.value() == DataType::BFLOAT4_B) ||
          (input_dtype.value() == DataType::BFLOAT4_B && output_dtype.value() == DataType::INT32) ||
          (input_dtype.value() == DataType::INT32 && output_dtype.value() == DataType::BFLOAT4_B))) {
-        TT_ASSERT(defines.count("SFPU_OP_CHAIN_0") == 0 && "SFPU_OP_CHAIN_0 already defined");
+        TT_ASSERT(defines.count("SFPU_OP_CHAIN_0") == 0, "SFPU_OP_CHAIN_0 already defined");
 
-        auto in_dataformat = std::to_string((uint32_t)datatype_to_dataformat_converter(input_dtype.value()));
-        auto out_dataformat = std::to_string((uint32_t)datatype_to_dataformat_converter(output_dtype.value()));
+        auto in_dataformat = (uint32_t)datatype_to_dataformat_converter(input_dtype.value());
+        auto out_dataformat = (uint32_t)datatype_to_dataformat_converter(output_dtype.value());
         defines.insert(
             {"SFPU_OP_CHAIN_0",
              fmt::format("typecast_tile_init(); typecast_tile<{0}u, {1}u>(i);", in_dataformat, out_dataformat)});
@@ -191,8 +191,13 @@ std::map<std::string, std::string> get_defines_fp32(
             }
             break;
         case BinaryOpType::SUB:
-            new_defines.insert({"BINOP_INIT", fmt::format("sub_binary_tile_init();")});
-            op_name = "sub_binary_tile";
+            if (input_a_dtype == DataType::INT32 && input_b_dtype == DataType::INT32) {
+                new_defines.insert({"SUB_INT32_INIT", "sub_int32_tile_init();"});
+                op_name = "sub_int32_tile";
+            } else {
+                new_defines.insert({"BINOP_INIT", "sub_binary_tile_init();"});
+                op_name = "sub_binary_tile";
+            }
             break;
         case BinaryOpType::MUL:
             new_defines.insert({"BINOP_INIT", fmt::format("mul_binary_tile_init();")});

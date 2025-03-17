@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "pool_op.hpp"
+#include "tt-metalium/circular_buffer.hpp"
+#include "tt-metalium/circular_buffer_types.hpp"
 #include "ttnn/operations/reduction/generic/device/reduce_op.hpp"  // for reduce_op_utils
 #include <tt-metalium/math.hpp>
 
@@ -43,8 +45,8 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
     auto reader_indices_buffer = reader_indices.device_buffer();
     tt::tt_metal::Buffer* dst_dram_buffer = output.buffer();
 
-    const tt::tt_metal::LegacyShape input_shape = input.get_legacy_shape();
-    const tt::tt_metal::LegacyShape output_shape = output.get_legacy_shape();
+    const auto input_shape = input.get_padded_shape();
+    const auto output_shape = output.get_padded_shape();
 
     tt::DataFormat in_df = datatype_to_dataformat_converter(input.get_dtype());
     tt::DataFormat out_df = datatype_to_dataformat_converter(output.get_dtype());
@@ -111,6 +113,9 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
     uint32_t split_reader = 1;
 
     // scalar CB as coefficient of reduce
+    using tt::tt_metal::CBHandle;
+    using tt::tt_metal::CircularBuffer;
+    using tt::tt_metal::CircularBufferConfig;
     uint32_t in_scalar_cb_id = tt::CBIndex::c_4;
     uint32_t in_scalar_cb_pagesize = tile_size(in_df);
     uint32_t in_scalar_cb_npages = 1;
@@ -179,16 +184,6 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
         log_debug(tt::LogOp, "CB {} :: PS = {}, NP = {}", in_cb_id_1, in_cb_pagesize, in_cb_npages);
     }
 
-    // output of tilize == input to reduce
-    uint32_t in_tiled_cb_id = tt::CBIndex::c_24;  // tiled input
-    uint32_t in_tiled_cb_pagesize = tile_size(in_df);
-    uint32_t in_tiled_cb_npages = in_ntiles_c * in_ntiles_hw * nblocks;
-    CircularBufferConfig in_tiled_cb_config =
-        CircularBufferConfig(in_tiled_cb_npages * in_tiled_cb_pagesize, {{in_tiled_cb_id, in_df}})
-            .set_page_size(in_tiled_cb_id, in_tiled_cb_pagesize);
-    auto in_tiled_cb = tt::tt_metal::CreateCircularBuffer(program, all_cores, in_tiled_cb_config);
-    log_debug(tt::LogOp, "CB {} :: PS = {}, NP = {}", in_tiled_cb_id, in_tiled_cb_pagesize, in_tiled_cb_npages);
-
     // output of reduce == writer to write
     uint32_t out_cb_id = tt::CBIndex::c_16;  // output rows in RM
     // after reduction
@@ -232,7 +227,6 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
             in_reader_indices_cb_pagesize,
             in_reader_indices_cb_npages);
         log_debug(tt::LogOp, "in_scalar_cb :: PS = {}, NP = {}", in_scalar_cb_pagesize, in_scalar_cb_npages);
-        log_debug(tt::LogOp, "in_tiled_cb :: PS = {}, NP = {}", in_tiled_cb_pagesize, in_tiled_cb_npages);
         log_debug(tt::LogOp, "out_cb :: PS = {}, NP = {}", out_cb_pagesize, out_cb_npages);
         log_debug(tt::LogOp, "in_addr: {}", src_dram_buffer->address());
         log_debug(tt::LogOp, "in_reader_indices_addr: {}", reader_indices_buffer->address());
@@ -326,12 +320,16 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
             "reader_max_pool_2d_multi_core_sharded_with_halo_v2.cpp";
     }
 
-    auto reader0_config = DataMovementConfig{
-        .processor = DataMovementProcessor::RISCV_0, .noc = NOC::RISCV_0_default, .compile_args = reader0_ct_args};
+    auto reader0_config = tt::tt_metal::DataMovementConfig{
+        .processor = tt::tt_metal::DataMovementProcessor::RISCV_0,
+        .noc = tt::tt_metal::NOC::RISCV_0_default,
+        .compile_args = reader0_ct_args};
     auto reader0_kernel = CreateKernel(program, reader_kernel_fname, all_cores, reader0_config);
 
-    auto reader1_config = DataMovementConfig{
-        .processor = DataMovementProcessor::RISCV_1, .noc = NOC::RISCV_1_default, .compile_args = reader1_ct_args};
+    auto reader1_config = tt::tt_metal::DataMovementConfig{
+        .processor = tt::tt_metal::DataMovementProcessor::RISCV_1,
+        .noc = tt::tt_metal::NOC::RISCV_1_default,
+        .compile_args = reader1_ct_args};
     auto reader1_kernel = split_reader ? CreateKernel(program, reader_kernel_fname, all_cores, reader1_config) : 0;
 
     /**
@@ -359,7 +357,7 @@ Pool2D::MultiCore::cached_program_t pool2d_multi_core_sharded_with_halo_v2_impl_
 
     auto reduce_op = tt::tt_metal::ReduceOpMath::MAX;
     auto reduce_dim = tt::tt_metal::ReduceOpDim::H;
-    auto compute_config = ComputeConfig{
+    auto compute_config = tt::tt_metal::ComputeConfig{
         .math_fidelity = MathFidelity::HiFi4,
         .fp32_dest_acc_en = false,
         .math_approx_mode = false,
@@ -416,7 +414,7 @@ Pool2D::MultiCore::cached_program_t Pool2D::MultiCore::create(
         sliding_window::generate_sliding_window_op_config(op_trace_metadata, shard_boundaries, false, true);
     auto reader_indices =
         sliding_window::construct_on_host_config_tensor(top_left_indices, sliding_window_config, parallel_config);
-    log_debug(tt::LogOp, "reader_indices shape: {}", reader_indices.shape());
+    log_debug(tt::LogOp, "reader_indices shape: {}", reader_indices.logical_shape());
     auto reader_indices_on_device =
         sliding_window::move_config_tensor_to_device(reader_indices, parallel_config, is_block_sharded, input.device());
 

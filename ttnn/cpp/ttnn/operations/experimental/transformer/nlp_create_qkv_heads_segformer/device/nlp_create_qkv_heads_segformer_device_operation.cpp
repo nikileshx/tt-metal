@@ -6,14 +6,12 @@
 
 #include <tt-metalium/work_split.hpp>
 
-using namespace tt::tt_metal;
-
 namespace ttnn::operations::experimental::transformer {
 
 // Hard-coded for Segformer
 void NlpCreateHeadsSegformerDeviceOperation::validate(const std::vector<Tensor>& input_tensors) const {
     const auto& input_tensor = input_tensors.at(0);
-    const auto input_shape = input_tensor.get_legacy_shape();
+    const auto input_shape = input_tensor.get_padded_shape();
 
     TT_FATAL(input_tensor.storage_type() == StorageType::DEVICE, "Operands to TM need to be on device!");
     TT_FATAL(input_tensor.buffer() != nullptr, "Operands to TM need to be allocated in buffers on device!");
@@ -43,12 +41,13 @@ std::vector<ttnn::TensorSpec> NlpCreateHeadsSegformerDeviceOperation::compute_ou
     const auto head_dim = 32;                                      // head_dim is hard-coded = 32
     auto num_heads = input_shape[3] / tt::constants::TILE_HEIGHT;  // head_dim is hard-coded = 32
     TensorSpec spec(
-        SimpleShape({input_shape[0], num_heads, input_shape[2], head_dim}),
-        TensorLayout(input_tensor.get_dtype(), PageConfig(Layout::TILE), output_mem_config));
+        Shape({input_shape[0], num_heads, input_shape[2], head_dim}),
+        tt::tt_metal::TensorLayout(
+            input_tensor.get_dtype(), tt::tt_metal::PageConfig(Layout::TILE), output_mem_config));
     return {spec, spec, spec};
 }
 
-operation::ProgramWithCallbacks NlpCreateHeadsSegformerDeviceOperation::create_program(
+tt::tt_metal::operation::ProgramWithCallbacks NlpCreateHeadsSegformerDeviceOperation::create_program(
     const std::vector<Tensor>& input_tensors, std::vector<Tensor>& output_tensors) const {
     const auto& input_tensor = input_tensors.at(0);
     auto& output_tensor = output_tensors.at(0);

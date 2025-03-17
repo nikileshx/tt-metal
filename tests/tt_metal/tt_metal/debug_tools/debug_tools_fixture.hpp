@@ -9,6 +9,10 @@
 #include "dispatch_fixture.hpp"
 #include "tt_metal/tt_metal/common/dispatch_fixture.hpp"
 
+#include "dprint_server.hpp"
+
+namespace tt::tt_metal {
+
 class DebugToolsFixture : public DispatchFixture {
    protected:
     bool watcher_previous_enabled;
@@ -42,7 +46,7 @@ protected:
     // Running with dprint + watcher enabled can make the code size blow up, so let's force watcher
     // disabled for DPRINT tests.
     void SetUp() override {
-        // The core range (physical) needs to be set >= the set of all cores
+        // The core range (virtual) needs to be set >= the set of all cores
         // used by all tests using this fixture, so set dprint enabled for
         // all cores and all devices
         tt::llrt::RunTimeOptions::get_instance().set_feature_enabled(tt::llrt::RunTimeDebugFeatureDprint, true);
@@ -220,3 +224,5 @@ public:
         tt::llrt::RunTimeOptions::get_instance().set_feature_targets(tt::llrt::RunTimeDebugFeatureAtomicDebugDelay, saved_target_selection[tt::llrt::RunTimeDebugFeatureAtomicDebugDelay]);
     }
 };
+
+} // namespace tt::tt_metal

@@ -11,6 +11,7 @@
 #include "device_fixture.hpp"
 #include <tt-metalium/tt_metal.hpp>
 #include <tt-metalium/host_api.hpp>
+#include <tt-metalium/allocator.hpp>
 #include "tt_metal/test_utils/comparison.hpp"
 #include "tt_metal/test_utils/df/df.hpp"
 #include "tt_metal/test_utils/print_helpers.hpp"
@@ -333,9 +334,11 @@ bool reader_datacopy_writer(tt_metal::IDevice* device, const ReaderDatacopyWrite
 }
 }  // namespace unit_tests::dram::direct
 
+namespace tt::tt_metal {
+
 TEST_F(DeviceFixture, TensixSingleCoreDirectDramReaderOnly) {
     for (unsigned int id = 0; id < num_devices_; id++) {
-        uint32_t l1_unreserved_base = devices_.at(id)->get_base_allocator_addr(HalMemType::L1);
+        uint32_t l1_unreserved_base = devices_.at(id)->allocator()->get_base_allocator_addr(HalMemType::L1);
         ASSERT_TRUE(
             unit_tests::dram::direct::reader_only(devices_.at(id), 1 * 1024, l1_unreserved_base, CoreCoord(0, 0)));
         ASSERT_TRUE(
@@ -346,7 +349,7 @@ TEST_F(DeviceFixture, TensixSingleCoreDirectDramReaderOnly) {
 }
 TEST_F(DeviceFixture, TensixSingleCoreDirectDramWriterOnly) {
     for (unsigned int id = 0; id < num_devices_; id++) {
-        uint32_t l1_unreserved_base = devices_.at(id)->get_base_allocator_addr(HalMemType::L1);
+        uint32_t l1_unreserved_base = devices_.at(id)->allocator()->get_base_allocator_addr(HalMemType::L1);
         ASSERT_TRUE(
             unit_tests::dram::direct::writer_only(devices_.at(id), 1 * 1024, l1_unreserved_base, CoreCoord(0, 0)));
         ASSERT_TRUE(
@@ -386,3 +389,5 @@ TEST_F(DeviceFixture, TensixSingleCoreDirectDramReaderDatacopyWriter) {
         ASSERT_TRUE(unit_tests::dram::direct::reader_datacopy_writer(devices_.at(id), test_config));
     }
 }
+
+}  // namespace tt::tt_metal

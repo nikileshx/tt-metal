@@ -10,6 +10,7 @@
 #include <tt-metalium/constants.hpp>
 #include <tt-metalium/util.hpp>
 #include <tt-metalium/hal_exp.hpp>
+#include <tt-metalium/math.hpp>
 
 #include <tt-metalium/global_circular_buffer_impl.hpp>
 #include <tt-metalium/global_circular_buffer.hpp>
@@ -36,7 +37,7 @@ std::pair<uint32_t, uint32_t> get_max_page_size_and_num_pages(
 operation::ProgramWithCallbacks dram_prefetcher_multi_core(
     const std::vector<Tensor>& input_tensors,
     const uint32_t num_layers,
-    const tt::tt_metal::v1::experimental::GlobalCircularBuffer& global_cb) {
+    const tt::tt_metal::experimental::GlobalCircularBuffer& global_cb) {
     /* Buffers */
     const Buffer& global_cb_buffer = global_cb.cb_buffer();
     // tensors that with addresses
@@ -82,6 +83,7 @@ operation::ProgramWithCallbacks dram_prefetcher_multi_core(
         uint32_t height_in_tiles = tensor_buffers[t]->shard_spec().shape()[0] / tensor_tiles[t].get_tile_shape()[0];
         uint32_t width_in_tiles = tensor_buffers[t]->shard_spec().shape()[1] / tensor_tiles[t].get_tile_shape()[1];
 
+        height_in_tiles = tt::round_up(height_in_tiles, num_blocks);
         tensor_shapes[t][0] = height_in_tiles;
         tensor_shapes[t][1] = width_in_tiles;
         tensor_block_num_tiles[t] = height_in_tiles * width_in_tiles / num_blocks;
@@ -144,7 +146,7 @@ operation::ProgramWithCallbacks dram_prefetcher_multi_core(
         .set_page_size(L1_ALIGNMENT)  // set to 16B so that the infra won't update write pointers to wrong location
         .set_data_format(max_tile_size_df);
     auto remote_cb =
-        tt::tt_metal::v1::experimental::CreateCircularBuffer(program, reader_core_range, remote_cb_config, global_cb);
+        tt::tt_metal::experimental::CreateCircularBuffer(program, reader_core_range, remote_cb_config, global_cb);
 
     /* Compile time args */
 

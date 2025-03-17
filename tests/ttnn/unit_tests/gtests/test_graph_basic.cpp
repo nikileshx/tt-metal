@@ -16,8 +16,8 @@
 namespace ttnn::graph::test {
 
 struct BufferTestParam {
-    ttnn::SimpleShape shape_a;
-    ttnn::SimpleShape shape_b;
+    ttnn::Shape shape_a;
+    ttnn::Shape shape_b;
 };
 
 class BufferTestFixture
@@ -29,7 +29,7 @@ TEST_P(BufferTestFixture, BufferTest) {
     auto params = std::get<0>(param_combination);
     auto run_mode = std::get<1>(param_combination);
 
-    tt::tt_metal::IDevice* device = &(this->getDevice());
+    tt::tt_metal::IDevice* device = device_;
     {
         ttnn::graph::GraphProcessor::begin_graph_capture(run_mode);
         {
@@ -104,8 +104,8 @@ INSTANTIATE_TEST_SUITE_P(
     BufferTestFixture,
     ::testing::Combine(
         ::testing::Values(BufferTestParam{
-            .shape_a = ttnn::SimpleShape(tt::tt_metal::Array4D{1, 1, 32, 32}),
-            .shape_b = ttnn::SimpleShape(tt::tt_metal::Array4D{32, 1, 32, 32})}),
+            .shape_a = ttnn::Shape(tt::tt_metal::Array4D{1, 1, 32, 32}),
+            .shape_b = ttnn::Shape(tt::tt_metal::Array4D{32, 1, 32, 32})}),
         ::testing::Values(
             tt::tt_metal::IGraphProcessor::RunMode::NO_DISPATCH, tt::tt_metal::IGraphProcessor::RunMode::NORMAL)),
     [](const testing::TestParamInfo<std::tuple<BufferTestParam, tt::tt_metal::IGraphProcessor::RunMode>>& info) {
@@ -126,11 +126,11 @@ INSTANTIATE_TEST_SUITE_P(
 
 class TestScopedGraphCapture : public ttnn::TTNNFixtureWithDevice {};
 TEST_F(TestScopedGraphCapture, ScopedGraphCapture) {
-    tt::tt_metal::IDevice* device = &(this->getDevice());
+    tt::tt_metal::IDevice* device = device_;
 
     auto operation = [&device](tt::tt_metal::DataType datatype) {
         const auto input_a = ttnn::TensorSpec(
-            ttnn::SimpleShape(tt::tt_metal::Array4D{1, 4, 512, 512}),
+            ttnn::Shape(tt::tt_metal::Array4D{1, 4, 512, 512}),
             tt::tt_metal::TensorLayout(
                 datatype, tt::tt_metal::PageConfig(tt::tt_metal::Layout::TILE), ttnn::L1_MEMORY_CONFIG));
         const auto input_tensor_a = tt::tt_metal::create_device_tensor(input_a, device);

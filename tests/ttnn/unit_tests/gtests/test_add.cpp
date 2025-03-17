@@ -20,15 +20,14 @@ struct Add1DTensorAndScalarParam {
     uint32_t w;
 };
 
-class Add1DTensorAndScalarFixture : public TTNNFixture,
+class Add1DTensorAndScalarFixture : public TTNNFixtureWithDevice,
                                     public testing::WithParamInterface<Add1DTensorAndScalarParam> {};
 
 TEST_P(Add1DTensorAndScalarFixture, AddsScalarCorrectly) {
     auto param = GetParam();
-    const auto device_id = 0;
-    auto& device = ttnn::open_device(device_id);
+    auto& device = *device_;
     std::array<uint32_t, 2> dimensions = {param.h, param.w};
-    ttnn::SimpleShape shape(dimensions);
+    ttnn::Shape shape(dimensions);
 
     {
         const auto input_tensor = ttnn::zeros(shape, DataType::BFLOAT16, ttnn::TILE_LAYOUT, device);

@@ -16,7 +16,7 @@
 #include <vector>
 
 #include "core_coord.hpp"
-#include "dispatch_core_manager.hpp"
+#include "dispatch_core_common.hpp"        // For DispatchCoreConfig
 #include "umd/device/tt_soc_descriptor.h"  // For CoreType
 
 namespace tt {
@@ -43,7 +43,8 @@ enum DebugHartFlags : unsigned int {
     RISCV_TR1 = 4,
     RISCV_TR2 = 8,
     RISCV_BR = 16,
-    RISCV_ER = 32
+    RISCV_ER0 = 32,
+    RISCV_ER1 = 64
 };
 
 // Enumerates the debug features that can be enabled at runtime. These features allow for
@@ -88,6 +89,9 @@ class RunTimeOptions {
     bool is_root_dir_env_var_set = false;
     std::string root_dir;
 
+    bool is_cache_dir_env_var_set = false;
+    std::string cache_dir_;
+
     bool is_kernel_dir_env_var_set = false;
     std::string kernel_dir;
 
@@ -99,6 +103,7 @@ class RunTimeOptions {
     bool watcher_append = false;
     bool watcher_auto_unpause = false;
     bool watcher_noinline = false;
+    bool watcher_phys_coords = false;
     bool record_noc_transfer_data = false;
 
     TargetSelection feature_targets[RunTimeDebugFeatureCount];
@@ -123,15 +128,22 @@ class RunTimeOptions {
     bool validate_kernel_binaries = false;
     unsigned num_hw_cqs = 1;
 
+    bool fb_fabric_en = false;
+
     bool enable_dispatch_data_collection = false;
 
     // HW can clear Blackhole's L1 data cache psuedo-randomly once every 128 transactions
     // This option will enable this feature to help flush out whether there is a missing cache invalidation
     bool enable_hw_cache_invalidation = false;
 
-    tt_metal::DispatchCoreConfig dispatch_core_config = tt_metal::DispatchCoreConfig{};
+    tt_metal::DispatchCoreType dispatch_core_type = tt_metal::DispatchCoreType::WORKER;
 
     bool skip_deleting_built_cache = false;
+
+    bool simulator_enabled = false;
+    std::filesystem::path simulator_path = "";
+
+    bool erisc_iram_enabled = false;
 
     RunTimeOptions();
 
@@ -146,6 +158,9 @@ public:
 
     inline bool is_root_dir_specified() const { return this->is_root_dir_env_var_set; }
     const std::string& get_root_dir();
+
+    inline bool is_cache_dir_specified() const { return this->is_cache_dir_env_var_set; }
+    const std::string& get_cache_dir();
 
     inline bool is_kernel_dir_specified() const { return this->is_kernel_dir_env_var_set; }
     const std::string& get_kernel_dir() const;
@@ -166,6 +181,8 @@ public:
     inline void set_watcher_auto_unpause(bool auto_unpause) { watcher_auto_unpause = auto_unpause; }
     inline int get_watcher_noinline() { return watcher_noinline; }
     inline void set_watcher_noinline(bool noinline) { watcher_noinline = noinline; }
+    inline int get_watcher_phys_coords() { return watcher_phys_coords; }
+    inline void set_watcher_phys_coords(bool phys_coords) { watcher_phys_coords = phys_coords; }
     inline std::set<std::string>& get_watcher_disabled_features() { return watcher_disabled_features; }
     inline bool watcher_status_disabled() { return watcher_feature_disabled(watcher_waypoint_str); }
     inline bool watcher_noc_sanitize_disabled() { return watcher_feature_disabled(watcher_noc_sanitize_str); }
@@ -295,6 +312,8 @@ public:
     inline unsigned get_num_hw_cqs() { return num_hw_cqs; }
     inline void set_num_hw_cqs(unsigned num) { num_hw_cqs = num; }
 
+    inline bool get_fd_fabric() const { return fb_fabric_en; }
+
     inline uint32_t get_watcher_debug_delay() { return watcher_debug_delay; }
     inline void set_watcher_debug_delay(uint32_t delay) { watcher_debug_delay = delay; }
 
@@ -303,9 +322,14 @@ public:
 
     inline bool get_hw_cache_invalidation_enabled() const { return this->enable_hw_cache_invalidation; }
 
-    inline tt_metal::DispatchCoreConfig get_dispatch_core_config() { return dispatch_core_config; }
+    tt_metal::DispatchCoreConfig get_dispatch_core_config() const;
 
     inline bool get_skip_deleting_built_cache() { return skip_deleting_built_cache; }
+
+    inline bool get_simulator_enabled() { return simulator_enabled; }
+    inline const std::filesystem::path& get_simulator_path() { return simulator_path; }
+
+    inline bool get_erisc_iram_enabled() { return erisc_iram_enabled; }
 
 private:
     // Helper functions to parse feature-specific environment vaiables.

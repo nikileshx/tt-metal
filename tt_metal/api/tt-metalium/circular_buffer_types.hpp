@@ -19,7 +19,6 @@
 #include "circular_buffer_constants.h"
 
 namespace tt::tt_metal {
-inline namespace v0 {
 
 using CBHandle = uintptr_t;
 
@@ -34,6 +33,20 @@ public:
     // Dynamic circular buffer spec
     CircularBufferConfig(
         uint32_t total_size, const std::map<uint8_t, tt::DataFormat>& data_format_spec, const Buffer& buffer);
+
+    // For flatbuffer deserialization, set all private members.
+    CircularBufferConfig(
+        uint32_t total_size,
+        std::optional<uint32_t> globally_allocated_address,
+        const std::array<std::optional<tt::DataFormat>, NUM_CIRCULAR_BUFFERS>& data_formats,
+        const std::array<std::optional<uint32_t>, NUM_CIRCULAR_BUFFERS>& page_sizes,
+        const std::array<std::optional<Tile>, NUM_CIRCULAR_BUFFERS>& tiles,
+        const std::unordered_set<uint8_t>& buffer_indices,
+        const std::unordered_set<uint8_t>& local_buffer_indices,
+        const std::unordered_set<uint8_t>& remote_buffer_indices,
+        bool dynamic_cb,
+        uint32_t max_size,
+        uint32_t buffer_size);
 
     CircularBufferConfig& set_page_size(uint8_t buffer_index, uint32_t page_size);
 
@@ -58,6 +71,11 @@ public:
     const std::array<std::optional<tt::DataFormat>, NUM_CIRCULAR_BUFFERS>& data_formats() const;
 
     const std::array<std::optional<uint32_t>, NUM_CIRCULAR_BUFFERS>& page_sizes() const;
+
+    // These 3 getters are not typically used, but needed for flatbuffer serialization
+    bool dynamic_cb() const;
+    uint32_t max_size() const;
+    uint32_t buffer_size() const;
 
     const Buffer* shadow_global_buffer{nullptr};
 
@@ -110,5 +128,4 @@ private:
 bool operator==(const CircularBufferConfig& lhs, const CircularBufferConfig& rhs);
 bool operator!=(const CircularBufferConfig& lhs, const CircularBufferConfig& rhs);
 
-}  // namespace v0
 }  // namespace tt::tt_metal
