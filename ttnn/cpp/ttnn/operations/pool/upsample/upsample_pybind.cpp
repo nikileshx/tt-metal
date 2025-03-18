@@ -49,7 +49,8 @@ void bind_upsample(py::module& module) {
             py::kw_only(),
             py::arg("mode") = "nearest",
             py::arg("memory_config") = std::nullopt,
-            py::arg("compute_kernel_config") = std::nullopt});
+            py::arg("compute_kernel_config") = std::nullopt,
+            py::arg("compute_shape") = std::nullopt});
 }
 
 }  // namespace detail
