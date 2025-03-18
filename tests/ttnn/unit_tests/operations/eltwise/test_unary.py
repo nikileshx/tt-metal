@@ -488,3 +488,21 @@ def test_unary_ceil(input_shapes, device):
     golden_tensor = golden_function(in_data1)
     output_tensor = ttnn.to_torch(output_tensor)
     assert_with_pcc(golden_tensor, output_tensor, 0.999)
+
+
+@pytest.mark.parametrize("h", [64])
+@pytest.mark.parametrize("w", [128])
+def test_silu_math_fidelity(device, h, w):
+    torch.manual_seed(0)
+
+    torch_input_tensor = torch.rand((h, w), dtype=torch.bfloat16)
+    golden_function = ttnn.get_golden_function(ttnn.silu)
+    torch_output_tensor = golden_function(torch_input_tensor, device=device)
+
+    input_tensor = ttnn.from_torch(torch_input_tensor, layout=ttnn.TILE_LAYOUT, device=device)
+    output_tensor = ttnn.silu(input_tensor, math_fidelity=ttnn.MathFidelity.LoFi)
+    output_tensor = ttnn.to_layout(output_tensor, ttnn.ROW_MAJOR_LAYOUT)
+    output_tensor = ttnn.from_device(output_tensor)
+    output_tensor = ttnn.to_torch(output_tensor)
+
+    assert_with_pcc(torch_output_tensor, output_tensor, pcc=0.999)
