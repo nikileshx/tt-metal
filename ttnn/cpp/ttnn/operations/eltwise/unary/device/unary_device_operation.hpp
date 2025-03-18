@@ -49,6 +49,7 @@ struct UnaryDeviceOperation {
         bool fp32_dest_acc_en,
         bool preserve_fp32_precision,
         bool bfp8_pack_precise,
+        const MathFidelity math_fidelity,
         const std::optional<Tensor>& preallocated_output);
 };
 
