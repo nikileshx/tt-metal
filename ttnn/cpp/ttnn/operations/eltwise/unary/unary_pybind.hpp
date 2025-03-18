@@ -190,6 +190,24 @@ void bind_unary_operation(
             py::arg("queue_id") = DefaultQueueId});
 }
 
+/**
+ * Binds a unary operation to a Python module with an optional math fidelity parameter.
+ *
+ * @tparam unary_operation_t The type of the unary operation.
+ * @param module The Python module to bind the operation to.
+ * @param operation The unary operation to be applied.
+ * @param math The mathematical representation of the operation.
+ * @param supported_dtype The supported data type for the operation. Defaults to "BFLOAT16".
+ * @param note Additional notes to be included in the documentation.
+ * @param example_tensor Example tensor to be used in the documentation.
+ *
+ * This function binds a given unary operation to a Python module, allowing it
+ * to be applied element-wise to an input tensor. It supports an optional
+ * math fidelity parameter to control the precision of the operation.
+ *
+ * To add support for any OP, Replace the bind function for that OP and change the Args for that OP accordingly.
+ */
+
 template <typename unary_operation_t>
 void bind_unary_operation_math_fidelity(
     py::module& module,
@@ -211,6 +229,7 @@ void bind_unary_operation_math_fidelity(
         Keyword Args:
             memory_config (ttnn.MemoryConfig, optional): memory configuration for the operation. Defaults to `None`.
             output_tensor (ttnn.Tensor, optional): preallocated output tensor. Defaults to `None`.
+            math_fidelity (ttnn.MathFidelity.HiFi4, optional): specifies the mathematical fidelity level for the operation. Defaults to `HiFi4`.
             queue_id (int, optional): command queue id. Defaults to `0`.
 
         Returns:
@@ -1716,6 +1735,8 @@ void py_module(py::module& module) {
     detail::bind_unary_operation(module, ttnn::sigmoid, R"doc(\mathrm{{output\_tensor}}_i = \verb|sigmoid|(\mathrm{{input\_tensor}}_i))doc", R"doc(BFLOAT16, BFLOAT8_B)doc");
     detail::bind_unary_operation(module, ttnn::sign, R"doc(\mathrm{{output\_tensor}}_i = \verb|sign|(\mathrm{{input\_tensor}}_i))doc", R"doc(BFLOAT16, BFLOAT8_B)doc");
     detail::bind_unary_operation(module, ttnn::signbit, R"doc(\mathrm{{output\_tensor}}_i = \verb|signbit|(\mathrm{{input\_tensor}}_i))doc");
+
+    // For now Added Math Fidelity support only for SiLU Op
     detail::bind_unary_operation_math_fidelity(module, ttnn::silu, R"doc(\mathrm{{output\_tensor}}_i = \verb|silu|(\mathrm{{input\_tensor}}_i))doc", R"doc(BFLOAT16, BFLOAT8_B)doc");
     detail::bind_unary_operation(module, ttnn::sin, R"doc(\mathrm{{output\_tensor}}_i = \verb|sin|(\mathrm{{input\_tensor}}_i))doc", R"doc(BFLOAT16, BFLOAT8_B)doc");
     detail::bind_unary_operation(module, ttnn::sqrt, R"doc(\mathrm{{output\_tensor}}_i = \verb|sqrt|(\mathrm{{input\_tensor}}_i))doc", R"doc(BFLOAT16, BFLOAT8_B)doc");
