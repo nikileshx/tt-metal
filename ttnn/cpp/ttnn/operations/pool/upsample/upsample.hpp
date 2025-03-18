@@ -18,7 +18,8 @@ struct ExecuteUpSample {
         std::variant<int, tt::tt_metal::Array2D> scale_factor,
         const std::string& mode = std::string("nearest"),
         const std::optional<MemoryConfig>& output_mem_config = std::nullopt,
-        const std::optional<DeviceComputeKernelConfig>& compute_kernel_config = std::nullopt);
+        const std::optional<DeviceComputeKernelConfig>& compute_kernel_config = std::nullopt,
+        const std::optional<ttnn::Shape>& compute_shape = std::nullopt);
 };
 }  // namespace upsample
 }  // namespace operations
