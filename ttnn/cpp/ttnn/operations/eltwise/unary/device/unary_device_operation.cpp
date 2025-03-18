@@ -21,6 +21,7 @@ void validate_supported_arch_dtype(
         case UnaryOpType::REMAINDER:
         case UnaryOpType::FLOOR:
         case UnaryOpType::CEIL:
+        case UnaryOpType::ROUND:
         case UnaryOpType::LEFT_SHIFT:
         case UnaryOpType::RIGHT_SHIFT:
             TT_FATAL(
@@ -216,6 +217,7 @@ UnaryDeviceOperation::invoke(
     bool fp32_dest_acc_en,
     bool preserve_fp32_precision,
     bool bfp8_pack_precise,
+    const MathFidelity math_fidelity,
     const std::optional<Tensor>& preallocated_output) {
     return {
         operation_attributes_t{
@@ -225,6 +227,7 @@ UnaryDeviceOperation::invoke(
             .fp32_dest_acc_en = fp32_dest_acc_en,
             .preserve_fp32_precision = preserve_fp32_precision,
             .bfp8_pack_precise = bfp8_pack_precise,
+            .math_fidelity = math_fidelity,
         },
         tensor_args_t{.input = input, .preallocated_output = preallocated_output}};
 }

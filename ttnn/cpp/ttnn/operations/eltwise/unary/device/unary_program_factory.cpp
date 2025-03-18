@@ -24,6 +24,8 @@ UnaryProgramFactory::cached_program_t UnaryProgramFactory::create(
     const auto& input = tensor_args.input;
     const auto& ops_chain = args.op_chain;
 
+    MathFidelity fidelity = args.math_fidelity;
+
     tt::tt_metal::Program program{};
 
     tt::DataFormat cb_data_format = tt::tt_metal::datatype_to_dataformat_converter(input.get_dtype());
@@ -95,7 +97,7 @@ UnaryProgramFactory::cached_program_t UnaryProgramFactory::create(
         "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute/eltwise_sfpu.cpp",
         core_group_1,
         tt::tt_metal::ComputeConfig{
-            .math_fidelity = MathFidelity::HiFi4,
+            .math_fidelity = fidelity,
             .fp32_dest_acc_en = args.fp32_dest_acc_en,
             .unpack_to_dest_mode = unpack_to_dest_mode,
             .bfp8_pack_precise = args.bfp8_pack_precise,
@@ -114,7 +116,7 @@ UnaryProgramFactory::cached_program_t UnaryProgramFactory::create(
             "ttnn/cpp/ttnn/operations/eltwise/unary/device/kernels/compute/eltwise_sfpu.cpp",
             core_group_2,
             tt::tt_metal::ComputeConfig{
-                .math_fidelity = MathFidelity::HiFi4,
+                .math_fidelity = fidelity,
                 .fp32_dest_acc_en = args.fp32_dest_acc_en,
                 .unpack_to_dest_mode = unpack_to_dest_mode,
                 .bfp8_pack_precise = args.bfp8_pack_precise,
