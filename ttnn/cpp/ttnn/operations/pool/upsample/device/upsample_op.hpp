@@ -15,6 +15,7 @@ enum class UpSampleParallelizationStrategy { MULTI_CORE, SINGLE_CORE };
 struct UpSample {
     const int scale_factor_h_;
     const int scale_factor_w_;
+    const ttnn::Shape computation_shape;
     const string mode_;
     const tt::tt_metal::MemoryConfig output_mem_config_;
     const DeviceComputeKernelConfig compute_kernel_config_;
@@ -27,7 +28,11 @@ struct UpSample {
 };
 
 tt::tt_metal::operation::ProgramWithCallbacks upsample_single_core(
-    const Tensor& input, Tensor& output, const uint32_t scale_factor_h, const uint32_t scale_factor_w);
+    const Tensor& input,
+    Tensor& output,
+    const uint32_t scale_factor_h,
+    const uint32_t scale_factor_w,
+    const ttnn::Shape computation_shape);
 tt::tt_metal::operation::ProgramWithCallbacks upsample_multi_core(
     const Tensor& input, Tensor& output, const uint32_t scale_factor_h, const uint32_t scale_factor_w);
 tt::tt_metal::operation::ProgramWithCallbacks bilinear_multi_core(
