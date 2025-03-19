@@ -99,14 +99,16 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
 @pytest.mark.parametrize(
     "source, model_type",
     [
-        ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/bus.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/laptop.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/laptop.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/cycle_girl.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/cycle_girl.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/umbrella.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/umbrella.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car1.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car1.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car2.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car2.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car3.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car3.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car4.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car4.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car5.jpg", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/car5.jpg", "tt_model"),
     ],
 )
 @pytest.mark.parametrize("res", [(320, 320)])

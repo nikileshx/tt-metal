@@ -46,14 +46,9 @@ def make_anchors(device, feats, strides, grid_cell_offset=0.5):
     b = torch.cat(stride_tensor).transpose(0, 1)
 
     return (
-        ttnn.from_torch(
-            a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
-        ),
-        ttnn.from_torch(
-            b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device, memory_config=ttnn.L1_MEMORY_CONFIG
-        ),
+        ttnn.from_torch(a, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
+        ttnn.from_torch(b, dtype=ttnn.bfloat16, layout=ttnn.TILE_LAYOUT, device=device),
     )
-    # try moving to L1 later
 
 
 def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
@@ -69,7 +64,13 @@ def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
         c_xy = ttnn.add(x1y1, x2y2, memory_config=ttnn.L1_MEMORY_CONFIG)
         c_xy = ttnn.div(c_xy, 2, memory_config=ttnn.L1_MEMORY_CONFIG)
         wh = ttnn.subtract(x2y2, x1y1, memory_config=ttnn.L1_MEMORY_CONFIG)
-        return ttnn.concat([c_xy, wh], 1, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+        c_xy = ttnn.to_layout(c_xy, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        wh = ttnn.to_layout(wh, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+        result = ttnn.concat((c_xy, wh), dim=1, memory_config=ttnn.L1_MEMORY_CONFIG)
+        result = ttnn.to_layout(result, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+        return result
 
 
 def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
@@ -95,59 +96,6 @@ def preprocess_parameters(state_dict, path, bias=True, bfloat8=True):
             conv_weight = ttnn.from_torch(conv_weight, dtype=ttnn.bfloat16)
 
         return (conv_weight, None)
-
-
-def ttnn_make_anchors(device, feats, strides, grid_cell_offset=0.5):
-    anchor_points, stride_tensor = [], []
-    feats = [(40, 40), (20, 20), (10, 10)]
-    for i, stride in enumerate(strides):
-        h, w = feats[i][0], feats[i][1]
-
-        sx = ttnn.arange(start=0, end=w, dtype=ttnn.bfloat16, device=device)
-        sy = ttnn.arange(start=0, end=h, dtype=ttnn.bfloat16, device=device)
-
-        sx = ttnn.to_layout(sx, ttnn.TILE_LAYOUT)
-        sy = ttnn.to_layout(sy, ttnn.TILE_LAYOUT)
-
-        sy = sy + grid_cell_offset
-        sx = sx + grid_cell_offset
-
-        sx = ttnn.reshape(sx, (1, 1, h, 1))
-        sx = ttnn.repeat(sx, ttnn.Shape((1, w, 1, 1)))
-
-        sy = ttnn.reshape(sy, (w, 1, 1, 1))
-        sy = ttnn.repeat(sy, ttnn.Shape((1, h, 1, 1)))
-
-        sx = ttnn.reshape(sx, (w, h))
-        sy = ttnn.reshape(sy, (h, w))
-
-        sx = ttnn.sharded_to_interleaved(sx, ttnn.L1_MEMORY_CONFIG)
-        sx = ttnn.to_layout(sx, ttnn.ROW_MAJOR_LAYOUT)
-        sx = ttnn.reshape(sx, (sx.shape[0], sx.shape[1], -1))
-
-        sy = ttnn.sharded_to_interleaved(sy, ttnn.L1_MEMORY_CONFIG)
-        sy = ttnn.to_layout(sy, ttnn.ROW_MAJOR_LAYOUT)
-        sy = ttnn.reshape(sy, (sx.shape[0], sx.shape[1], -1))
-
-        temp = ttnn.concat([sx, sy], dim=-1)
-        temp = ttnn.reshape(temp, (-1, 2))
-
-        temp = ttnn.sharded_to_interleaved(temp, ttnn.L1_MEMORY_CONFIG)
-        temp = ttnn.to_layout(temp, ttnn.TILE_LAYOUT)
-        temp = ttnn.to_device(temp, device)
-        anchor_points.append(temp)
-
-        temp = ttnn.full(shape=[h * w, 1], fill_value=stride, dtype=ttnn.bfloat16)
-
-        temp = ttnn.sharded_to_interleaved(temp, ttnn.L1_MEMORY_CONFIG)
-        temp = ttnn.to_layout(temp, ttnn.TILE_LAYOUT)
-        temp = ttnn.to_device(temp, device)
-        stride_tensor.append(temp)
-
-    a = ttnn.concat(anchor_points, dim=0)
-    b = ttnn.concat(stride_tensor, dim=0)
-
-    return (a, b)
 
 
 def custom_preprocessor(device, state_dict, inp_h=320, inp_w=320):
