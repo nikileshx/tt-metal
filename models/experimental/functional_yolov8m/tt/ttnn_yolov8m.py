@@ -621,16 +621,32 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+    nhw = batch_size * x.shape[1] * x.shape[2]
+    num_cores = determine_num_cores_for_upsample(nhw, x.shape[2])
+    core_grid = get_core_grid_from_num_cores(num_cores)
+
+    shardspec = ttnn.create_sharded_memory_config_(
+        x.shape, core_grid, ttnn.ShardStrategy.HEIGHT, orientation=ttnn.ShardOrientation.ROW_MAJOR
+    )
+
+    if x.is_sharded():
+        x = ttnn.reshard(x, shardspec)
+    else:
+        x = ttnn.interleaved_to_sharded(x, shardspec)
+
+    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=x.memory_config())
 
     inp_h, inp_w = x.shape[1], x.shape[2]
 
     x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.concat([x, four], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    four = ttnn.to_layout(four, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = get_concat_shard(device, [x, four])
     ttnn.deallocate(four)
 
-    x, out_h, out_w = c2f(device, x, parameters, "model.15", inp_h, inp_w, n=2, shortcut=False, batch_size=batch_size)
+    x, out_h, out_w = c2f(
+        device, x, parameters, "model.15", inp_h, inp_w, n=2, shortcut=False, batch_size=batch_size, act_block_h=True
+    )
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     fifteen = x
