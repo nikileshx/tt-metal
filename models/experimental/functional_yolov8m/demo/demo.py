@@ -86,7 +86,7 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
 
     image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     output_name = f"prediction_{timestamp}.jpg"
     output_path = os.path.join(model_save_dir, output_name)
 
@@ -99,20 +99,13 @@ def save_yolo_predictions_by_model(result, save_dir, image_path, model_name):
 @pytest.mark.parametrize(
     "source, model_type",
     [
-        ("models/experimental/functional_yolov8m/demo/images/car1.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car1.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car2.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car2.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car3.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car3.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car4.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car4.jpg", "tt_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car5.jpg", "torch_model"),
-        ("models/experimental/functional_yolov8m/demo/images/car5.jpg", "tt_model"),
+        ("models/experimental/functional_yolov8m/demo/images/", "torch_model"),
+        ("models/experimental/functional_yolov8m/demo/images/", "tt_model"),
     ],
 )
 @pytest.mark.parametrize("res", [(320, 320)])
-def test_demo(device, source, model_type, res):
+@pytest.mark.parametrize("batch_size", [8])
+def test_demo(device, source, model_type, res, batch_size):
     disable_persistent_kernel_cache()
 
     if model_type == "torch_model":
@@ -121,12 +114,12 @@ def test_demo(device, source, model_type, res):
     else:
         state_dict = attempt_load("yolov8m.pt", map_location="cpu").state_dict()
         parameters = custom_preprocessor(device, state_dict, inp_h=res[0], inp_w=res[1])
-        model = partial(YOLOv8m, device=device, parameters=parameters)
+        model = partial(YOLOv8m, device=device, parameters=parameters, batch_size=batch_size, res=res)
         logger.info("Inferencing using ttnn Model")
 
     save_dir = "models/experimental/functional_yolov8m/demo/runs"
 
-    dataset = LoadImages(path=source)
+    dataset = LoadImages(path=source, batch=batch_size)
 
     model_save_dir = os.path.join(save_dir, model_type)
     os.makedirs(model_save_dir, exist_ok=True)
@@ -219,6 +212,10 @@ def test_demo(device, source, model_type, res):
 
         im = preprocess(im0s, res=res)
 
+        print(
+            f"Inference running for batch size {batch_size} with {im.shape[2]} * {im.shape[3]} resolution using {model_type}"
+        )
+
         ttnn_im = im.permute((0, 2, 3, 1))
         ttnn_im = ttnn.from_torch(ttnn_im, dtype=ttnn.bfloat16, layout=ttnn.ROW_MAJOR_LAYOUT, device=device)
 
@@ -227,9 +224,13 @@ def test_demo(device, source, model_type, res):
         else:
             preds = model(x=ttnn_im)
             preds[0] = ttnn.to_torch(preds[0], dtype=torch.float32)
+            print(f"Output Shape: {preds[0].shape}")
 
-        results = postprocess(preds, im, im0s, batch, names)[0]
+        results = postprocess(preds, im, im0s, batch, names)  # len(results) should be equal to batch size
 
-        save_yolo_predictions_by_model(results, save_dir, source, model_type)
+        for i in range(len(results)):
+            save_yolo_predictions_by_model(results[i], save_dir, paths[i], model_type)
+
+        break  # Comment it if you want to run for next batch
 
     print("Inference done")

@@ -5,6 +5,7 @@
 import os
 import cv2
 import math
+import glob
 import time
 import torch
 import torchvision
@@ -27,6 +28,8 @@ class LoadImages:
             a = str(Path(p).absolute())
             if os.path.isfile(a):
                 files.append(a)
+            elif os.path.isdir(a):
+                files.extend(sorted(glob.glob(os.path.join(a, "*.*"))))
             else:
                 raise FileNotFoundError(f"{p} does not exist")
 

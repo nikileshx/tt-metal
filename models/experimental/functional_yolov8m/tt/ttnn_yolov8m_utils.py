@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import ttnn
+import math
 import torch
 
 
@@ -51,9 +52,48 @@ def make_anchors(device, feats, strides, grid_cell_offset=0.5):
     )
 
 
+def determine_num_cores_for_upsample(nhw: int, width: int, max_cores=64) -> int:
+    gcd_nhw_width = math.gcd(nhw, width)
+    cores = nhw // gcd_nhw_width
+    if cores > max_cores:
+        for divisor in range(max_cores, 0, -1):
+            if nhw % divisor == 0 and (nhw // divisor) % width == 0:
+                cores = divisor
+                break
+    return cores
+
+
+def get_core_grid_from_num_cores(num_cores: int, grid_rows: int = 8, grid_cols: int = 8):
+    rows = num_cores // grid_cols
+    assert rows <= grid_rows, "Not enough cores for specified core grid"
+    ranges = []
+    if rows != 0:
+        ranges.append(
+            ttnn.CoreRange(
+                ttnn.CoreCoord(0, 0),
+                ttnn.CoreCoord(grid_rows - 1, rows - 1),
+            )
+        )
+    remainder = num_cores % grid_rows
+    if remainder != 0:
+        assert rows + 1 <= grid_rows, "Not enough cores for specified core grid"
+        ranges.append(
+            ttnn.CoreRange(
+                ttnn.CoreCoord(0, rows),
+                ttnn.CoreCoord(remainder - 1, rows),
+            )
+        )
+    return ttnn.CoreRangeSet({*ranges})
+
+
 def ttnn_decode_bboxes(device, distance, anchor_points, xywh=True):
     distance = ttnn.to_layout(distance, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    lt, rb = ttnn.split(distance, 2, 1, memory_config=ttnn.L1_MEMORY_CONFIG)  # if done in tile : tt-metal issue #17017
+    # lt, rb = ttnn.split(distance, 2, 1, memory_config=ttnn.L1_MEMORY_CONFIG)  # if done in tile : tt-metal issue #17017
+
+    a, b, c = distance.shape
+    lt = ttnn.slice(distance, [0, 0, 0], [a, b // 2, c], memory_config=ttnn.L1_MEMORY_CONFIG)
+    rb = ttnn.slice(distance, [0, b // 2, 0], [a, b, c], memory_config=ttnn.L1_MEMORY_CONFIG)
+
     lt = ttnn.to_layout(lt, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     rb = ttnn.to_layout(rb, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
@@ -209,3 +249,78 @@ def custom_preprocessor(device, state_dict, inp_h=320, inp_w=320):
     parameters["strides"] = strides
 
     return parameters
+
+
+def min_multiple_of_32(n):
+    return (n + 31) // 32 * 32
+
+
+def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
+    input_sharded_memory_config = []
+
+    shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 7))})
+
+    for i in range(len(input_tensors)):
+        in_shard_width = input_tensors[i].shape[-1]
+        shard_height = (input_tensors[i].shape[2] + num_cores - 1) // num_cores
+
+        memory_config = ttnn.create_sharded_memory_config(
+            (shard_height, in_shard_width),
+            core_grid=shard_grid,
+            strategy=ttnn.ShardStrategy.HEIGHT,
+            use_height_and_width_as_shard_shape=True,
+        )
+        input_sharded_memory_config.append(memory_config)
+
+    out_shard_width = 0
+    for i in range(len(input_tensors)):
+        out_shard_width += input_tensors[i].shape[-1]
+        input_tensors[i] = ttnn.to_memory_config(input_tensors[i], input_sharded_memory_config[i])
+
+    # in_shard_width = input_tensors[1].shape[-1]
+    # shard_height = (input_tensors[1].shape[2] + num_cores - 1) // num_cores
+    # memory_config = ttnn.create_sharded_memory_config(
+    #     (shard_height, in_shard_width),
+    #     core_grid=shard_grid,
+    #     strategy=ttnn.ShardStrategy.HEIGHT,
+    #     use_height_and_width_as_shard_shape=True,
+    # )
+    # input_sharded_memory_config.append(memory_config)
+
+    # input_tensors[1] = ttnn.to_memory_config(input_tensors[1], input_sharded_memory_config[0])
+
+    # out_shard_width = 0
+    # for i in range(len(input_tensors)):
+    #     out_shard_width += input_tensors[i].shape[-1]
+
+    output_sharded_memory_config = ttnn.create_sharded_memory_config(
+        (shard_height, out_shard_width),
+        core_grid=shard_grid,
+        strategy=ttnn.ShardStrategy.HEIGHT,
+        use_height_and_width_as_shard_shape=True,
+    )
+
+    output = ttnn.concat(input_tensors, dim, memory_config=output_sharded_memory_config)
+    output = ttnn.sharded_to_interleaved(output, ttnn.L1_MEMORY_CONFIG)
+
+    return output
+
+
+def compare_tensors(tensor1, tensor2, tolerance=1e-4):
+    if tensor1.shape != tensor2.shape:
+        raise ValueError("Tensors must have the same shape")
+
+    matches = torch.isclose(tensor1, tensor2, atol=tolerance)
+    match_percentage = matches.float().mean().item() * 100
+    non_match_percentage = 100 - match_percentage
+
+    mse = torch.mean((tensor1 - tensor2) ** 2).item()
+    mae = torch.mean(torch.abs(tensor1 - tensor2)).item()
+
+    return {
+        "tolerance": tolerance,
+        "match_percentage": match_percentage,
+        "non_match_percentage": non_match_percentage,
+        "mean_squared_diff": mse,
+        "mean_abs_diff": mae,
+    }
