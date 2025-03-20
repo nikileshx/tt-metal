@@ -5,7 +5,13 @@
 import ttnn
 import math
 
-from models.experimental.functional_yolov8m.tt.ttnn_yolov8m_utils import autopad, ttnn_decode_bboxes, get_concat_shard
+from models.experimental.functional_yolov8m.tt.ttnn_yolov8m_utils import (
+    autopad,
+    ttnn_decode_bboxes,
+    get_concat_shard,
+    determine_num_cores_for_upsample,
+    get_core_grid_from_num_cores,
+)
 
 
 def conv(
@@ -529,7 +535,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         block_shard=False,
         change_shard=False,
         batch_size=batch_size,
-        use_interleaved=True if res == (224, 224) else False,
+        use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
@@ -562,7 +568,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         block_shard=False,
         batch_size=batch_size,
         memory_config=ttnn.L1_MEMORY_CONFIG,
-        use_interleaved=True if res == (224, 224) else False,
+        use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
     )
 
     x, out_h, out_w = SPPF(device, x, parameters, "model.9", out_h, out_w, batch_size=batch_size)
@@ -571,14 +577,27 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=ttnn.L1_MEMORY_CONFIG)
+    nhw = batch_size * x.shape[1] * x.shape[2]
+    num_cores = determine_num_cores_for_upsample(nhw, x.shape[2])
+    core_grid = get_core_grid_from_num_cores(num_cores)
+
+    shardspec = ttnn.create_sharded_memory_config_(
+        x.shape, core_grid, ttnn.ShardStrategy.HEIGHT, orientation=ttnn.ShardOrientation.ROW_MAJOR
+    )
+
+    if x.is_sharded():
+        x = ttnn.reshard(x, shardspec)
+    else:
+        x = ttnn.interleaved_to_sharded(x, shardspec)
+
+    x = ttnn.upsample(x, scale_factor=(2, 2), memory_config=x.memory_config())
 
     inp_h, inp_w = x.shape[1], x.shape[2]
 
     x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.to_layout(x, ttnn.TILE_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x = ttnn.concat([x, six], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    six = ttnn.to_layout(six, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    x = get_concat_shard(device, [x, six])
 
     ttnn.deallocate(six)
 
@@ -593,7 +612,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         shortcut=False,
         bfloat8=True,
         batch_size=batch_size,
-        use_interleaved=True if res == (224, 224) else False,
+        use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
     )
 
     x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
@@ -613,7 +632,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x, out_h, out_w = c2f(device, x, parameters, "model.15", inp_h, inp_w, n=2, shortcut=False, batch_size=batch_size)
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     fifteen = x
 
     x, out_h, out_w = conv(
@@ -645,10 +664,10 @@ def DetectionModel(device, x, parameters, res, batch_size):
         shortcut=False,
         batch_size=batch_size,
         block_shard=False,
-        use_interleaved=True if res == (224, 224) else False,
+        use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     eighteen = x
 
     x, out_h, out_w = conv(
@@ -680,7 +699,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         n=2,
         shortcut=False,
         batch_size=batch_size,
-        use_interleaved=True if res == (224, 224) else False,
+        use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
     )
 
     x = [fifteen, eighteen, x]
