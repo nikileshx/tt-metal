@@ -255,7 +255,7 @@ def min_multiple_of_32(n):
     return (n + 31) // 32 * 32
 
 
-def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
+def get_concat_shard(device, input_tensors, num_cores=64, dim=3, shard_to_interleave=True):
     input_sharded_memory_config = []
 
     shard_grid = ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 7))})
@@ -301,6 +301,10 @@ def get_concat_shard(device, input_tensors, num_cores=64, dim=3):
     )
 
     output = ttnn.concat(input_tensors, dim, memory_config=output_sharded_memory_config)
+
+    if not shard_to_interleave:
+        return output
+
     output = ttnn.sharded_to_interleaved(output, ttnn.L1_MEMORY_CONFIG)
 
     return output

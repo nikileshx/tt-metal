@@ -38,6 +38,7 @@ def conv(
     width_shard=False,
     memory_config=None,
     batch_size=1,
+    reshard=False,
 ):
     p = autopad(k, p, d)
 
@@ -52,6 +53,7 @@ def conv(
         enable_split_reader=False,
         enable_subblock_padding=False,
         output_layout=output_layout,
+        reshard_if_not_optimal=reshard,
     )
 
     if deallocate_activation:
@@ -207,6 +209,7 @@ def c2f(
     temp="",
     concat_flag=False,
     memory_config=None,
+    reshard=False,
 ):
     cv1, out_h, out_w = conv(
         device,
@@ -222,6 +225,7 @@ def c2f(
         width_shard=width_shard,
         batch_size=batch_size,
         block_shard=block_shard,
+        reshard=reshard,
     )
 
     if use_interleaved:
@@ -328,7 +332,7 @@ def SPPF(device, x, parameters, path, in_h, in_w, k=5, batch_size=1):
         )
         y.append(output)
 
-    x = get_concat_shard(device, y)
+    x = get_concat_shard(device, y, shard_to_interleave=False)
 
     for i in range(len(y)):
         ttnn.deallocate(y[i])
@@ -342,9 +346,10 @@ def SPPF(device, x, parameters, path, in_h, in_w, k=5, batch_size=1):
         out_w,
         1,
         1,
-        change_shard=True,
-        memory_config=ttnn.L1_MEMORY_CONFIG,
+        # change_shard=True,
+        # memory_config=ttnn.L1_MEMORY_CONFIG,
         batch_size=batch_size,
+        reshard=True,
     )
 
     return x, out_h, out_w
@@ -505,7 +510,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x, out_h, out_w = c2f(device, x, parameters, "model.4", out_h, out_w, n=4, shortcut=True, batch_size=batch_size)
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
     four = x
 
     x, out_h, out_w = conv(
@@ -538,7 +543,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
     six = x
 
     x, out_h, out_w = conv(
@@ -573,9 +578,10 @@ def DetectionModel(device, x, parameters, res, batch_size):
 
     x, out_h, out_w = SPPF(device, x, parameters, "model.9", out_h, out_w, batch_size=batch_size)
 
+    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+
     nine = x
 
-    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
     x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     nhw = batch_size * x.shape[1] * x.shape[2]
     num_cores = determine_num_cores_for_upsample(nhw, x.shape[2])
@@ -597,7 +603,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
     x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
 
     six = ttnn.to_layout(six, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
-    x = get_concat_shard(device, [x, six])
+    x = get_concat_shard(device, [x, six], shard_to_interleave=False)
 
     ttnn.deallocate(six)
 
@@ -613,13 +619,14 @@ def DetectionModel(device, x, parameters, res, batch_size):
         bfloat8=True,
         batch_size=batch_size,
         use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
+        reshard=True,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-
-    twelve = x
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    twelve = x
+
     x = ttnn.reshape(x, (batch_size, out_h, out_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     nhw = batch_size * x.shape[1] * x.shape[2]
     num_cores = determine_num_cores_for_upsample(nhw, x.shape[2])
@@ -641,11 +648,21 @@ def DetectionModel(device, x, parameters, res, batch_size):
     x = ttnn.reshape(x, (1, 1, batch_size * inp_h * inp_w, x.shape[-1]), memory_config=ttnn.L1_MEMORY_CONFIG)
     four = ttnn.to_layout(four, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
 
-    x = get_concat_shard(device, [x, four])
+    x = get_concat_shard(device, [x, four], shard_to_interleave=False)
     ttnn.deallocate(four)
 
     x, out_h, out_w = c2f(
-        device, x, parameters, "model.15", inp_h, inp_w, n=2, shortcut=False, batch_size=batch_size, act_block_h=True
+        device,
+        x,
+        parameters,
+        "model.15",
+        inp_h,
+        inp_w,
+        n=2,
+        shortcut=False,
+        batch_size=batch_size,
+        act_block_h=True,
+        reshard=True,
     )
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
@@ -664,8 +681,11 @@ def DetectionModel(device, x, parameters, res, batch_size):
         batch_size=batch_size,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.concat([x, twelve], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.concat([x, twelve], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    x = get_concat_shard(device, [x, twelve], shard_to_interleave=False)
 
     ttnn.deallocate(twelve)
 
@@ -681,6 +701,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         batch_size=batch_size,
         block_shard=False,
         use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
+        reshard=True,
     )
 
     x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
@@ -700,8 +721,11 @@ def DetectionModel(device, x, parameters, res, batch_size):
         batch_size=batch_size,
     )
 
-    x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-    x = ttnn.concat([x, nine], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
+    # x = ttnn.concat([x, nine], dim=3, memory_config=ttnn.L1_MEMORY_CONFIG)
+
+    x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    x = get_concat_shard(device, [x, nine], shard_to_interleave=False)
 
     ttnn.deallocate(nine)
 
@@ -716,6 +740,7 @@ def DetectionModel(device, x, parameters, res, batch_size):
         shortcut=False,
         batch_size=batch_size,
         use_interleaved=True if res == (224, 224) or batch_size == 1 else False,
+        reshard=True,
     )
 
     x = [fifteen, eighteen, x]
