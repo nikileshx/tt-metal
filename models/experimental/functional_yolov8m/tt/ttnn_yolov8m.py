@@ -478,9 +478,9 @@ def DetectionModel(device, x, parameters, res, batch_size):
         device, x, parameters, "model.0", res[0], res[1], 3, 2, 1, act_block_h=True, batch_size=batch_size
     )
 
-    if batch_size > 6 and res != (224, 224):
-        x = ttnn.sharded_to_interleaved(x, ttnn.L1_MEMORY_CONFIG)
-        x = ttnn.to_layout(x, ttnn.ROW_MAJOR_LAYOUT, memory_config=ttnn.L1_MEMORY_CONFIG)
+    memory_config = x.memory_config()
+    memory_config.shard_spec.mode = ttnn.ShardMode.LOGICAL
+    x = ttnn.reshard(x, memory_config)
 
     x, out_h, out_w = conv(
         device, x, parameters, "model.1", out_h, out_w, 3, 2, 1, act_block_h=True, batch_size=batch_size

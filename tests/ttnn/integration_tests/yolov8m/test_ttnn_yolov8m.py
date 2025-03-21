@@ -153,9 +153,9 @@ def test_demo(device, input_tensor):
     passing, pcc = assert_with_pcc(ttnn_model_output, torch_model_output, 0.99)
     logger.info(f"Passing: {passing}, PCC: {pcc}")
 
-    logger.info(f"Printing Torch All Close Metrics")
-    results = compare_tensors(ttnn_model_output, torch_model_output)
-    logger.info(f"{results}")
+    # logger.info(f"Printing Torch All Close Metrics")
+    # results = compare_tensors(ttnn_model_output, torch_model_output)
+    # logger.info(f"{results}")
 
 
 @pytest.mark.parametrize("device_params", [{"l1_small_size": 32768}], indirect=True)
