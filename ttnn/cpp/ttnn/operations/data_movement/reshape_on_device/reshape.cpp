@@ -53,6 +53,7 @@ ttnn::Tensor ReshapeOperation::invoke(
     ttnn::Shape output_shape,
     const std::optional<MemoryConfig>& memory_config_arg) {
     using namespace tt::constants;
+    std::cout << "Reshape on device " <<std::endl;
     auto output_mem_config = memory_config_arg.value_or(input_tensor.memory_config());
     auto padded_output_shape = output_shape.padded_shape();
     // No-op (Will do a tensor copy)

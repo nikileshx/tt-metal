@@ -159,9 +159,14 @@ void Validate_transform (const ttnn::Shape& input_shape, const ttnn::Shape& outp
     TT_FATAL(input_volume == output_volume, "Invalid Reshape, input and output volume must match");
 }
 
-ttnn::Tensor ReshapeViewOperation::invoke(const ttnn::Tensor& tensor, const ttnn::Shape& shape) {
+ttnn::Tensor ReshapeViewOperation::invoke(const ttnn::Tensor& tensor, const ttnn::Shape& shape, const std::optional<ttnn::Layout> output_layout) {
+
     auto layout = tensor.get_layout();
     auto tensor_shape = tensor.get_shape();
+
+    std::cout << "Reshape on view " << std::endl;
+
+
 
     // First Case, No reshape Required
     if (tensor_shape == shape) {
@@ -207,15 +212,16 @@ ttnn::Tensor ReshapeViewOperation::invoke(const ttnn::Tensor& tensor, const ttnn
     return detail::convert_tensor_to_rm_reshape_convert_back_to_orig_layout(tensor, shape);
 }
 
-ttnn::Tensor ReshapeViewOperation::invoke(const ttnn::Tensor& tensor, const ttnn::SimpleShape& shape) {
-    return invoke(tensor, ttnn::Shape(shape.view()));
+ttnn::Tensor ReshapeViewOperation::invoke(const ttnn::Tensor& tensor, const ttnn::SimpleShape& shape, const std::optional<ttnn::Layout> layout) {
+    return invoke(tensor, ttnn::Shape(shape.view()), layout);
 }
 
 ttnn::Tensor ReshapeViewOperation::invoke(
     const ttnn::Tensor& tensor,
-    tt::stl::Span<const int32_t> shape_vector
+    tt::stl::Span<const int32_t> shape_vector,
+    const std::optional<ttnn::Layout> layout
     ) {
-    return invoke(tensor, tt::tt_metal::infer_dims_for_reshape(tensor, shape_vector));
+    return invoke(tensor, tt::tt_metal::infer_dims_for_reshape(tensor, shape_vector), layout);
 }
 
 } // ttnn::operations::data_movement namespace

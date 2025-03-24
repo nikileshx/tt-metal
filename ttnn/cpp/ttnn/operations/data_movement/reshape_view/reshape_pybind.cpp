@@ -24,22 +24,26 @@ void bind_reshape_view(pybind11::module& module, const data_movement_operation_t
         ttnn::pybind_overload_t{
             [](const data_movement_operation_t& self,
                const ttnn::Tensor& input_tensor,
-               const ttnn::Shape& shape
+               const ttnn::Shape& shape,
+               const std::optional<ttnn::Layout> layout = std::nullopt
                ) -> ttnn::Tensor {
-                return self(input_tensor, shape);
+                return self(input_tensor, shape, layout);
             },
             py::arg("input_tensor"),
             py::arg("shape"),
+            py::arg("layout") = std::nullopt,
             },
         ttnn::pybind_overload_t{
             [](const data_movement_operation_t& self,
                const ttnn::Tensor& input_tensor,
-               const ttnn::SmallVector<int32_t> shape
+               const ttnn::SmallVector<int32_t> shape,
+               const std::optional<ttnn::Layout> layout = std::nullopt
                ) -> ttnn::Tensor {
-                return self(input_tensor, shape);
+                return self(input_tensor, shape, layout);
             },
             py::arg("input_tensor"),
             py::arg("shape"),
+            py::arg("layout") = std::nullopt
             }
         );
 }

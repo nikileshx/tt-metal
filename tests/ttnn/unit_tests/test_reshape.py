@@ -384,3 +384,23 @@ def test_fp32_support(input_shape, output_shape, device):
     output = ttnn.to_torch(ttnn_output)
 
     assert_with_pcc(torch_result, output, 0.9999)
+
+
+@pytest.mark.parametrize(
+    "input_shape, output_shape",
+    [
+        ((1, 2, 2, 2), (1, 1, 2, 4)),
+    ],
+)
+def test_reshape_layout(input_shape, output_shape, device):
+    torch_input_tensor = torch.randn(input_shape, dtype=torch.bfloat16)
+    torch_result = torch_input_tensor.reshape(output_shape)
+
+    input_tensor = ttnn.from_torch(torch_input_tensor, layout=ttnn.TILE_LAYOUT, dtype=ttnn.bfloat16, device=device)
+    ttnn_output = ttnn.reshape(input_tensor, output_shape, layout=ttnn.ROW_MAJOR_LAYOUT)
+
+    output = ttnn.to_torch(ttnn_output)
+
+    print(ttnn_output)
+
+    assert_with_pcc(torch_result, output, 0.9999)
