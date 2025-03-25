@@ -389,7 +389,7 @@ def test_fp32_support(input_shape, output_shape, device):
 @pytest.mark.parametrize(
     "input_shape, output_shape",
     [
-        ((1, 2, 2, 2), (1, 1, 2, 4)),
+        ((1, 1, 756, 128), (1, 27, 28, 128)),
     ],
 )
 def test_reshape_layout(input_shape, output_shape, device):
@@ -403,4 +403,4 @@ def test_reshape_layout(input_shape, output_shape, device):
 
     print(ttnn_output)
 
-    assert_with_pcc(torch_result, output, 0.9999)
+    assert_with_pcc(torch_result, output, 1)
