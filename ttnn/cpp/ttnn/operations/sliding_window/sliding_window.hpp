@@ -53,6 +53,7 @@ struct SlidingWindowConfig {
     bool snap_to_tile = false;
     bool is_bilinear = false;
     bool is_transpose = false;
+    bool ceil_mode = false;
 
     std::string to_string() const;
     bool has_parallel_config() const;
@@ -72,6 +73,8 @@ struct SlidingWindowConfig {
     Shape get_output_shape() const;
 
     Shape get_transposed_full_input_shape() const;
+    uint32_t get_ceil_pad_h() const;
+    uint32_t get_ceil_pad_w() const;
 
     std::array<uint32_pair_t, 2> get_transposed_real_padding() const;
     /**
