@@ -85,6 +85,7 @@ void bind_max_pool2d_operation(py::module& module) {
                 std::array<uint32_t, 2> dilation,
                 const std::optional<const MemoryConfig> memory_config,
                 const std::optional<const ttnn::TensorMemoryLayout> applied_shard_scheme,
+                bool ceil_mode,
                 const uint8_t& queue_id)
                 -> ttnn::Tensor { return self(queue_id,
                                               input_tensor,
@@ -97,7 +98,8 @@ void bind_max_pool2d_operation(py::module& module) {
                                               padding,
                                               dilation,
                                               memory_config,
-                                              applied_shard_scheme); },
+                                              applied_shard_scheme,
+                                              ceil_mode); },
                 py::arg("input_tensor"),
                 py::arg("batch_size"),
                 py::arg("input_h"),
@@ -110,6 +112,7 @@ void bind_max_pool2d_operation(py::module& module) {
                 py::kw_only(),
                 py::arg("memory_config") = std::nullopt,
                 py::arg("applied_shard_scheme") = std::nullopt,
+                py::arg("ceil_mode") = false,
                 py::arg("queue_id") = 0});
 }
 

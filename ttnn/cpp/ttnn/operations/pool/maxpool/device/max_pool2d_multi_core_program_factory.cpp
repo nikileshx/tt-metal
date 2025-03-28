@@ -27,6 +27,7 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
     uint32_t stride_w,
     uint32_t pad_h,
     uint32_t pad_w,
+    uint32_t ceil_pad_w,
     uint32_t dilation_h,
     uint32_t dilation_w,
     uint32_t num_shards_c,
@@ -36,7 +37,7 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
     // This should allocate a DRAM buffer on the device
     Device* device = input.device();
     tt::tt_metal::Buffer* src_dram_buffer = input.buffer();
-    tt::tt_metal::Buffer* reader_indices_buffer = reader_indices.buffer();
+    auto reader_indices_buffer = reader_indices.device_buffer();
     tt::tt_metal::Buffer* dst_dram_buffer = output.buffer();
 
     const tt::tt_metal::LegacyShape input_shape = input.get_legacy_shape();
@@ -148,22 +149,21 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
 
     uint32_t in_cb_sz = 0;
     uint32_t in_nblocks_c = 1;
-    if (is_large_kernel) {
-        in_cb_sz = (input_shape[3] / num_shards_c * kernel_size_hw_padded) > (tt::constants::TILE_HW * MAX_TILES_PER_REDUCTION)
-            ? (tt::constants::TILE_HW * MAX_TILES_PER_REDUCTION)
-            : input_shape[3] / num_shards_c * kernel_size_hw_padded;
-        if (is_wide_reduction) {
-            in_nblocks_c = in_ntiles_c / MAX_TILES_PER_REDUCTION;
-        }
+    // if (is_large_kernel) {
+    //     in_cb_sz = (input_shape[3] / num_shards_c * kernel_size_hw_padded) > (tt::constants::TILE_HW * MAX_TILES_PER_REDUCTION)
+    //         ? (tt::constants::TILE_HW * MAX_TILES_PER_REDUCTION)
+    //         : input_shape[3] / num_shards_c * kernel_size_hw_padded;
+    //     if (is_wide_reduction) {
+    //         in_nblocks_c = in_ntiles_c / MAX_TILES_PER_REDUCTION;
+    //     }
+    // } else {
+    if (is_wide_reduction) {
+        in_cb_sz = MAX_TILES_PER_REDUCTION * tt::constants::TILE_HW;
+        in_nblocks_c = std::ceil((float)in_ntiles_c / MAX_TILES_PER_REDUCTION);
     } else {
-        if (is_wide_reduction) {
-            in_cb_sz = MAX_TILES_PER_REDUCTION * tt::constants::TILE_WIDTH * kernel_size_hw_padded;
-            TT_FATAL(in_ntiles_c % MAX_TILES_PER_REDUCTION == 0, "input channels should be multiple of {} tiles. General case TODO.", MAX_TILES_PER_REDUCTION);
-            in_nblocks_c = in_ntiles_c / MAX_TILES_PER_REDUCTION;
-        } else {
-            in_cb_sz = input_shape[3] / num_shards_c * kernel_size_hw_padded;
-        }
+        in_cb_sz = in_ntiles_c * tt::constants::TILE_HW;
     }
+    // }
     // reader output == input to tilize
     uint32_t in_cb_id_0 = tt::CBIndex::c_0;  // input rows for "multiple (out_nelems)" output pixels
     uint32_t in_cb_id_1 = tt::CBIndex::c_1;  // input rows for "multiple (out_nelems)" output pixels
@@ -199,8 +199,11 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
     // output of reduce == writer to write
     uint32_t out_cb_id = tt::CBIndex::c_16;  // output rows in RM
     // after reduction
-    uint32_t out_cb_pagesize = output.shard_spec().value().shape[1] * out_nbytes / in_nblocks_c;  // there is just one row of channels after each reduction (or 1 block of c if its greater than 8 tiles)
-    uint32_t out_cb_npages = output.shard_spec().value().shape[0] * in_nblocks_c;
+    uint32_t out_cb_pagesize = std::min(tt::constants::TILE_WIDTH, output.shard_spec().value().shape[1]) *
+                               out_nbytes;  // there is just one row of channels after each reduction (or 1 block
+                                            // of c if its greater than 8 tiles)
+    uint32_t out_cb_npages = output.shard_spec().value().shape[0] * in_ntiles_c;
+
     CircularBufferConfig cb_out_config = CircularBufferConfig(out_cb_npages * out_cb_pagesize, {{out_cb_id, out_df}})
                                              .set_page_size(out_cb_id, out_cb_pagesize)
                                              .set_globally_allocated_address(*output.buffer());
@@ -210,7 +213,7 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
 
     if (is_large_kernel) {
         uint32_t max_pool_partials_cb_id = tt::CBIndex::c_25;  // max_pool partials
-        uint32_t max_pool_partials_cb_pagesize = std::min(out_cb_pagesize, TILE_SIZE * 8 * out_nbytes);
+        uint32_t max_pool_partials_cb_pagesize = out_cb_pagesize;
         uint32_t max_pool_partials_cb_npages = nblocks;
         CircularBufferConfig max_pool_partials_cb_config =
             CircularBufferConfig(
@@ -294,7 +297,8 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
         bf16_one_u32,
         in_nblocks_c,
         in_cb_sz,
-        max_rows_for_reduction};
+        max_rows_for_reduction,
+        ceil_pad_w};
 
     std::vector<uint32_t> reader1_ct_args = {
         out_nhw_per_core,
@@ -311,7 +315,8 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
         bf16_one_u32,
         in_nblocks_c,
         in_cb_sz,
-        max_rows_for_reduction};
+        max_rows_for_reduction,
+        ceil_pad_w};
 
     std::string reader_kernel_fname;
     if (is_large_kernel) {
@@ -380,7 +385,8 @@ MaxPool2D::MultiCore::cached_program_t max_pool_2d_multi_core_sharded_with_halo_
         .raw_in_cb = raw_in_cb,
         .cb_out = cb_out,
         .ncores = ncores,
-        .ncores_w = ncores_w
+        .ncores_w = ncores_w,
+        .reader_indices_buffer = reader_indices_buffer
     }};
 }
 
@@ -414,7 +420,7 @@ MaxPool2D::MultiCore::cached_program_t MaxPool2D::MultiCore::create(const operat
     auto reader_indices_on_device =
         sliding_window::move_config_tensor_to_device(reader_indices, parallel_config, is_block_sharded, input.device());
 
-    tt::tt_metal::detail::AddConfigBuffer(program, reader_indices_on_device.device_buffer());
+    // tt::tt_metal::detail::AddConfigBuffer(program, reader_indices_on_device.device_buffer());
 
     auto in_n = sliding_window_config.batch_size;
     auto in_h = sliding_window_config.input_hw.first;
@@ -425,6 +431,7 @@ MaxPool2D::MultiCore::cached_program_t MaxPool2D::MultiCore::create(const operat
     auto stride_w = sliding_window_config.stride_hw.second;
     auto pad_h = sliding_window_config.pad_hw.first;
     auto pad_w = sliding_window_config.pad_hw.second;
+    auto ceil_pad_w = sliding_window_config.get_ceil_pad_w();
     auto dilation_h = sliding_window_config.dilation_hw.first;
     auto dilation_w = sliding_window_config.dilation_hw.second;
     auto num_shards_c = sliding_window_config.num_cores_c;
@@ -445,6 +452,7 @@ MaxPool2D::MultiCore::cached_program_t MaxPool2D::MultiCore::create(const operat
         stride_w,
         pad_h,
         pad_w,
+        ceil_pad_w,
         dilation_h,
         dilation_w,
         num_shards_c,
