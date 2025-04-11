@@ -58,8 +58,8 @@ operation::ProgramWithCallbacks argmax_single_core(
 
     auto src_buffer = input.buffer();
     auto dst_buffer = output.buffer();
-    bool src_is_dram = src_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? 1 : 0;
-    bool dst_is_dram = dst_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? 1 : 0;
+    bool src_is_dram = src_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? true : false;
+    bool dst_is_dram = dst_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? true : false;
 
     std::vector<uint32_t> reader_compile_time_args = {
         src0_cb_index,
@@ -94,12 +94,14 @@ operation::ProgramWithCallbacks argmax_single_core(
     }
 
     auto override_runtime_args_callback = [reader_kernel_id, cores](
+                                              const void* operation,
                                               const Program& program,
-                                              const std::vector<Buffer*>& input_buffers,
-                                              const std::vector<Buffer*>& output_buffers) {
-        auto src_buffer = input_buffers.at(0);
+                                              const std::vector<Tensor>& input_tensors,
+                                              const std::vector<std::optional<const Tensor>>&,
+                                              const std::vector<Tensor>& output_tensors) {
+        auto src_buffer = input_tensors.at(0).buffer();
 
-        auto dst_buffer = output_buffers.at(0);
+        auto dst_buffer = output_tensors.at(0).buffer();
 
         for (const auto& core : cores) {
             {
@@ -178,8 +180,8 @@ operation::ProgramWithCallbacks argmax_multi_core(
 
     auto src_buffer = input.buffer();
     auto dst_buffer = output.buffer();
-    bool src_is_dram = src_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? 1 : 0;
-    bool dst_is_dram = dst_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? 1 : 0;
+    bool src_is_dram = src_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? true : false;
+    bool dst_is_dram = dst_buffer->buffer_type() == tt::tt_metal::BufferType::DRAM ? true : false;
 
     auto semaphore_addr = tt::tt_metal::CreateSemaphore(program, core_grid, 0);
     auto cores = corerange_to_cores(core_grid, num_cores, true);
@@ -234,12 +236,14 @@ operation::ProgramWithCallbacks argmax_multi_core(
     }
 
     auto override_runtime_args_callback = [reader_kernel_id, cores](
+                                              const void* operation,
                                               const Program& program,
-                                              const std::vector<Buffer*>& input_buffers,
-                                              const std::vector<Buffer*>& output_buffers) {
-        auto src_buffer = input_buffers.at(0);
+                                              const std::vector<Tensor>& input_tensors,
+                                              const std::vector<std::optional<const Tensor>>&,
+                                              const std::vector<Tensor>& output_tensors) {
+        auto src_buffer = input_tensors.at(0).buffer();
 
-        auto dst_buffer = output_buffers.at(0);
+        auto dst_buffer = output_tensors.at(0).buffer();
         uint32_t core_id = 0;
         for (const auto& core : cores) {
             {

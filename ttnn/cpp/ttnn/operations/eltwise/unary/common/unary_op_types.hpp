@@ -91,7 +91,19 @@ enum class UnaryOpType {
     DROPOUT,
     FILL,
     PRELU_SFPU,
-    ZERO_POINT
+    ZERO_POINT,
+    MISH,
+    MAXIMUM,
+    MINIMUM,
+};
+
+enum class VecMode {
+    None = 0,
+    R = 1,
+    C = 2,
+    RC = 4,
+    RC_custom = 6,
+    Invalid = 0xFF,
 };
 
 struct UnaryWithParam {

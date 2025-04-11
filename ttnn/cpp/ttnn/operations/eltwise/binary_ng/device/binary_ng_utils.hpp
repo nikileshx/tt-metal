@@ -57,7 +57,8 @@ struct OpConfig {
         BITWISE_XOR,
         QUANT,
         REQUANT,
-        DEQUANT
+        DEQUANT,
+        MAXIMUM
     };
 
     template <class EnumT>
@@ -78,5 +79,7 @@ void add_activation_defines(
     std::string_view operand);
 
 uint32_t pack_scalar_runtime_arg(const float scalar, const DataType dtype, const bool is_quant_op);
+
+std::map<std::string, std::string> make_dataflow_defines(const DataType dtype, const bool is_sfpu_op);
 
 }  // namespace ttnn::operations::binary_ng

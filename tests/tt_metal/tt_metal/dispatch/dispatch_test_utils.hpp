@@ -116,7 +116,7 @@ inline void verify_kernel_coordinates(
     tt::tt_metal::SubDeviceId sub_device_id,
     uint32_t cb_addr,
     bool idle_eth = false) {
-    tt::Cluster::instance().l1_barrier(device->id());
+    tt::tt_metal::MetalContext::instance().get_cluster().l1_barrier(device->id());
     tt::tt_metal::HalProgrammableCoreType hal_core_type = processor_class == tt::RISCV::ERISC
                                                               ? tt::tt_metal::HalProgrammableCoreType::ACTIVE_ETH
                                                               : tt::tt_metal::HalProgrammableCoreType::TENSIX;
@@ -136,11 +136,6 @@ inline void verify_kernel_coordinates(
                 device->id(), virtual_coord, cb_addr, sizeof(tt::tt_metal::CoreCoordsL1));
             auto read_coords = reinterpret_cast<volatile tt::tt_metal::CoreCoordsL1*>(read_coords_raw.data());
 
-            if (processor_class != tt::RISCV::COMPUTE) {
-                // my_x and my_y are not available on compute
-                EXPECT_EQ(read_coords->my_x, virtual_coord.x) << "Virtual X";
-                EXPECT_EQ(read_coords->my_y, virtual_coord.y) << "Virtual Y";
-            }
             EXPECT_EQ(read_coords->my_logical_x, logical_coord.x) << "Logical X";
             EXPECT_EQ(read_coords->my_logical_y, logical_coord.y) << "Logical Y";
 

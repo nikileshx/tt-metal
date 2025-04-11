@@ -40,17 +40,16 @@ enum CQDispatchCmdId : uint8_t {
     CQ_DISPATCH_CMD_WRITE_PACKED = 5,         // write to multiple noc addresses with packed data
     CQ_DISPATCH_CMD_WRITE_PACKED_LARGE = 6,   // write to multiple noc/dst addresses and varying lengnths w/ packed data
     CQ_DISPATCH_CMD_WAIT = 7,                 // wait until workers are done
-    CQ_DISPATCH_CMD_GO = 8,                   // send go message
-    CQ_DISPATCH_CMD_SINK = 9,                 // act as a data sink (for testing)
-    CQ_DISPATCH_CMD_DEBUG = 10,               // log waypoint data to watcher, checksum
-    CQ_DISPATCH_CMD_DELAY = 11,               // insert delay (for testing)
-    CQ_DISPATCH_CMD_EXEC_BUF_END = 12,        // dispatch_d notify prefetch_h that exec_buf has completed
-    CQ_DISPATCH_CMD_SET_WRITE_OFFSET = 13,  // set the offset to add to all non-host destination addresses (relocation)
-    CQ_DISPATCH_CMD_TERMINATE = 14,         // quit
-    CQ_DISPATCH_CMD_SEND_GO_SIGNAL = 15,
-    CQ_DISPATCH_NOTIFY_SLAVE_GO_SIGNAL = 16,
-    CQ_DISPATCH_SET_NUM_WORKER_SEMS = 17,
-    CQ_DISPATCH_SET_GO_SIGNAL_NOC_DATA = 18,
+    CQ_DISPATCH_CMD_SINK = 8,                 // act as a data sink (for testing)
+    CQ_DISPATCH_CMD_DEBUG = 9,                // log waypoint data to watcher, checksum
+    CQ_DISPATCH_CMD_DELAY = 10,               // insert delay (for testing)
+    CQ_DISPATCH_CMD_EXEC_BUF_END = 11,        // dispatch_d notify prefetch_h that exec_buf has completed
+    CQ_DISPATCH_CMD_SET_WRITE_OFFSET = 12,  // set the offset to add to all non-host destination addresses (relocation)
+    CQ_DISPATCH_CMD_TERMINATE = 13,         // quit
+    CQ_DISPATCH_CMD_SEND_GO_SIGNAL = 14,
+    CQ_DISPATCH_NOTIFY_SLAVE_GO_SIGNAL = 15,
+    CQ_DISPATCH_SET_NUM_WORKER_SEMS = 16,
+    CQ_DISPATCH_SET_GO_SIGNAL_NOC_DATA = 17,
     CQ_DISPATCH_CMD_MAX_COUNT,  // for checking legal IDs
 };
 
@@ -70,7 +69,6 @@ enum DispatcherSelect : uint8_t {
 struct CQGenericDebugCmd {
     uint8_t pad;
     uint16_t key;       // prefetcher/dispatcher all write to watcher
-    uint32_t checksum;  // checksum of payload
     uint32_t size;      // size of payload
     uint32_t stride;    // stride to next Cmd (may be within the payload)
 } __attribute__((packed));
@@ -185,6 +183,15 @@ constexpr uint32_t CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_NONE = 0x00;
 constexpr uint32_t CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_MCAST = 0x01;
 constexpr uint32_t CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_NO_STRIDE = 0x02;
 
+constexpr uint32_t CQ_DISPATCH_CMD_PACKED_WRITE_TYPE_SHIFT = 4;
+enum CQDispatchCmdPackedWriteType {
+    CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_TYPE_MASK = 0xf << CQ_DISPATCH_CMD_PACKED_WRITE_TYPE_SHIFT,
+    CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_TYPE_RTA = 0x1 << CQ_DISPATCH_CMD_PACKED_WRITE_TYPE_SHIFT,
+    CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_TYPE_LAUNCH = 0x2 << CQ_DISPATCH_CMD_PACKED_WRITE_TYPE_SHIFT,
+    CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_TYPE_SEMS = 0x3 << CQ_DISPATCH_CMD_PACKED_WRITE_TYPE_SHIFT,
+    CQ_DISPATCH_CMD_PACKED_WRITE_FLAG_TYPE_EVENT = 0x4 << CQ_DISPATCH_CMD_PACKED_WRITE_TYPE_SHIFT,
+};
+
 struct CQDispatchWritePackedCmd {
     uint8_t flags;   // see above
     uint16_t count;  // number of sub-cmds (max 1020 unicast, 510 mcast). Max num sub-cmds =
@@ -225,11 +232,17 @@ get_packed_write_max_multicast_sub_cmds(uint32_t packed_write_max_unicast_sub_cm
 // Current implementation limit is based on size of the l1_cache which stores the sub_cmds
 constexpr uint32_t CQ_DISPATCH_CMD_PACKED_WRITE_LARGE_MAX_SUB_CMDS = 35;
 
+enum CQDispatchCmdPackedWriteLargeType {
+    CQ_DISPATCH_CMD_PACKED_WRITE_LARGE_TYPE_UNKNOWN = 0,
+    CQ_DISPATCH_CMD_PACKED_WRITE_LARGE_TYPE_CBS_SEMS_CRTAS = 1,
+    CQ_DISPATCH_CMD_PACKED_WRITE_LARGE_TYPE_PROGRAM_BINARIES = 2,
+};
+
 // More flexible/slower than WritePacked
 // Removes size constraints
 // Implicitly mcast
 struct CQDispatchWritePackedLargeCmd {
-    uint8_t pad1;
+    uint8_t type;
     uint16_t count;  // number of sub-cmds
     uint16_t alignment;
     uint16_t write_offset_index;
@@ -262,7 +275,7 @@ struct CQDispatchDelayCmd {
 
 struct CQDispatchSetWriteOffsetCmd {
     uint8_t pad1;
-    uint16_t pad2;
+    uint16_t program_host_id;  // Program Host ID for upcoming commands. Used for profiling.
     uint32_t offset0;
     uint32_t offset1;
     uint32_t offset2;

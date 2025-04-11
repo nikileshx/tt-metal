@@ -17,6 +17,7 @@ from tests.ttnn.unit_tests.operations.ccl.test_new_all_reduce import (
     NORM_CRS,
     LM_HEAD_CRS,
     QKV_CRS,
+    FF1_CRS,
 )
 from tests.tt_eager.python_api_testing.unit_testing.misc.test_matmul_1d_gather_in0 import (
     PREFETCHER_NOC1_GRID,
@@ -57,15 +58,15 @@ CORE_RANGE_SET_1x1 = ttnn.CoreRangeSet(
 # Enumerate the post-commit cases explicitly
 @skip_for_grayskull("Requires eth connected devices to run")
 @pytest.mark.parametrize(
-    "num_devices, num_links",
+    "num_devices",
     [
-        (4, 3),
+        4,
     ],
 )
 @pytest.mark.parametrize(
     "input_dtype",
     [
-        ttnn.bfloat8_b,
+        ttnn.bfloat16,
     ],
 )
 @pytest.mark.parametrize(
@@ -76,11 +77,12 @@ CORE_RANGE_SET_1x1 = ttnn.CoreRangeSet(
 )
 @pytest.mark.parametrize("shard_grid_orientation", [ttnn.ShardOrientation.ROW_MAJOR])
 @pytest.mark.parametrize(
-    "tensor_mem_layout, output_shape, dim, input_shard_shape,input_shard_grid,output_shard_shape, output_shard_grid, layout",
+    "tensor_mem_layout, output_shape, num_links, dim, input_shard_shape,input_shard_grid,output_shard_shape, output_shard_grid, layout",
     (
         (  # AllGather after SDPA
             ttnn.TensorMemoryLayout.HEIGHT_SHARDED,
             (1, 32, 32, 128),
+            3,
             1,
             (32, 128),
             ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(7, 0))}),
@@ -97,6 +99,7 @@ CORE_RANGE_SET_1x1 = ttnn.CoreRangeSet(
             ttnn.TensorMemoryLayout.WIDTH_SHARDED,
             (1, 1, 32, 3840),
             3,
+            3,
             (32, 32),
             ttnn.CoreRangeSet({ttnn.CoreRange(ttnn.CoreCoord(0, 0), ttnn.CoreCoord(5, 4))}),
             (32, 160),
@@ -106,6 +109,7 @@ CORE_RANGE_SET_1x1 = ttnn.CoreRangeSet(
         (  # AllGather for layernorm
             ttnn.TensorMemoryLayout.WIDTH_SHARDED,
             (1, 1, 32, 128),
+            1,
             3,
             (32, 32),
             CORE_RANGE_SET_1x1,
@@ -189,29 +193,24 @@ def test_all_gather_tg_llama(
         enable_persistent_fabric=True,
         create_persistent_fabric=True,
         teardown_persistent_fabric=True,
+        use_persistent_output=True,
     )
 
 
 @skip_for_grayskull("Requires eth connected devices to run")
 @pytest.mark.parametrize(
-    "output_shape, cluster_axis, num_links, input_num_cores, input_core_range_set, output_num_cores, output_core_range_set",
+    "output_shape, cluster_axis, num_links, input_num_cores, input_core_range_set, output_num_cores, output_core_range_set, input_dtype, output_dtype",
     [
-        ([1, 1, 32, 2048], 0, 4, 24, RING_CRS, 16, NORM_CRS),  # FF2/DO all reduce
-        ([1, 1, 32, 1280], 1, 3, 24, RING_CRS, 40, QKV_CRS),  # QKV all reduce
-        ([1, 1, 32, 3584], 1, 3, 24, RING_CRS, 24, RING_CRS),  # FF1 all reduce
-        ([1, 1, 32, 16 * 1024], 1, 3, 32, LM_HEAD_CRS, 32, LM_HEAD_CRS),  # LM head all reduce
+        ([1, 1, 32, 2048], 0, 4, 24, RING_CRS, 16, NORM_CRS, ttnn.bfloat8_b, None),  # FF2/DO all reduce
+        ([1, 1, 32, 1280], 1, 3, 24, RING_CRS, 10, QKV_CRS, ttnn.bfloat8_b, ttnn.bfloat16),  # QKV all reduce
+        ([1, 1, 32, 3584], 1, 3, 24, RING_CRS, 28, FF1_CRS, ttnn.bfloat8_b, None),  # FF1 all reduce
+        ([1, 1, 32, 16 * 1024], 1, 3, 32, LM_HEAD_CRS, 32, LM_HEAD_CRS, ttnn.bfloat8_b, None),  # LM head all reduce
     ],
     ids=[
         "ff2",
         "qkv",
         "ff1",
         "lm_head",
-    ],
-)
-@pytest.mark.parametrize(
-    "input_dtype",
-    [
-        ttnn.bfloat8_b,
     ],
 )
 @pytest.mark.parametrize(
@@ -239,6 +238,7 @@ def test_all_reduce_tg_llama(
     output_shape,
     cluster_axis,
     input_dtype,
+    output_dtype,
     num_links,
     input_num_cores,
     input_core_range_set,
@@ -250,6 +250,7 @@ def test_all_reduce_tg_llama(
     trace_mode,
     use_program_cache,
     function_level_defaults,
+    ensure_devices_tg,
 ):
     profiler = BenchmarkProfiler()
 
@@ -263,6 +264,7 @@ def test_all_reduce_tg_llama(
         input_core_range_set,
         output_num_cores,
         output_core_range_set,
+        output_dtype=output_dtype,
         num_iters=num_iters,
         warmup_iters=warmup_iters,
         enable_async=enable_async,

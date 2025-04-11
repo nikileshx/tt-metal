@@ -7,9 +7,6 @@ from tt_lib.fallback_ops import fallback_ops
 import math
 
 import torch
-from typing import Optional, Dict
-
-conv_cache = {}
 
 
 def round_up_to_tile_dim(n):

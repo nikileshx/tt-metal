@@ -2,30 +2,17 @@
 
 # SPDX-License-Identifier: Apache-2.0
 
-import copy
 import ttnn
 import torch
-from typing import Optional, Dict
 import os
-from models.utility_functions import torch_to_tt_tensor_rm, tt_to_torch_tensor
 from models.demos.wormhole.stable_diffusion.tt.ttnn_functional_basic_transformer_block import (
     basic_transformer_block,
 )
 from models.demos.wormhole.stable_diffusion.tt.ttnn_functional_utility_functions import (
     pre_process_input,
-    pad_group_norm_weight,
     permute_conv_parameters,
     dealloc_input,
 )
-from models.demos.wormhole.stable_diffusion.tt.ttnn_functional_utility_functions import conv_cache
-
-from loguru import logger
-
-
-def ttnn_to_torch(input):
-    input = ttnn.from_device(input)
-    input = ttnn.to_torch(input)
-    return input
 
 
 class transformer_2d_model:
@@ -307,7 +294,6 @@ class transformer_2d_model:
             bias_tensor=self.proj_in_conv_bias,
             **conv_kwargs,
             compute_config=compute_config,
-            conv_op_cache=conv_cache,
             return_output_dim=False,
             return_weights_and_bias=False,
         )
@@ -387,7 +373,6 @@ class transformer_2d_model:
                     **conv_kwargs_1,
                     weight_tensor=self.proj_out_conv_weights,
                     bias_tensor=self.proj_out_conv_bias,
-                    conv_op_cache=conv_cache,
                     return_output_dim=True,
                     return_weights_and_bias=True,
                 )

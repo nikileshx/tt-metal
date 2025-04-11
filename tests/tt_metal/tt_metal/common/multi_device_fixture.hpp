@@ -107,6 +107,7 @@ protected:
         std::unordered_set<MeshDeviceType> mesh_device_types;
         int num_cqs = 1;
         uint32_t trace_region_size = 0;
+        uint32_t worker_l1_size = DEFAULT_WORKER_L1_SIZE;
     };
 
     MeshDeviceFixtureBase(const Config& fixture_config) : config_(fixture_config) {}
@@ -144,11 +145,13 @@ protected:
         auto core_type = (config_.num_cqs >= 2 and *mesh_device_type != MeshDeviceType::TG) ? DispatchCoreType::ETH
                                                                                             : DispatchCoreType::WORKER;
         mesh_device_ = MeshDevice::create(
-            MeshDeviceConfig{.mesh_shape = get_mesh_shape(*mesh_device_type)},
+            MeshDeviceConfig(get_mesh_shape(*mesh_device_type)),
             0,
             config_.trace_region_size,
             config_.num_cqs,
-            core_type);
+            core_type,
+            {},
+            config_.worker_l1_size);
     }
 
     void TearDown() override {
